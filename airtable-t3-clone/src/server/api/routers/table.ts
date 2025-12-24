@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { faker } from "@faker-js/faker";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
-import { ColumnType } from "~/generated/prisma";
+import { ColumnType } from "../../../generated/prisma";
 
 const DEFAULT_COLS = [
   { name: "Name", type: ColumnType.TEXT },
