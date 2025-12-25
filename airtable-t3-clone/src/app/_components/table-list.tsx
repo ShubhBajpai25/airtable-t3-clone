@@ -40,7 +40,7 @@ export function TableList({ baseId }: { baseId: string }) {
             createTable.mutate({
               baseId,
               name: name.trim(),
-              seedRows: 30, // small for now
+              seedRows: 30,
             })
           }
         >
