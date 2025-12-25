@@ -27,6 +27,73 @@ export const tableRouter = createTRPCRouter({
       });
     }),
 
+  getMeta: protectedProcedure
+    .input(z.object({ baseId: z.string().min(1), tableId: z.string().min(1) }))
+    .query(async ({ ctx, input }) => {
+      const table = await ctx.db.table.findFirst({
+        where: {
+          id: input.tableId,
+          baseId: input.baseId,
+          base: { ownerId: ctx.session.user.id },
+        },
+        select: {
+          id: true,
+          name: true,
+          baseId: true,
+          columns: {
+            orderBy: { order: "asc" },
+            select: { id: true, name: true, type: true, order: true },
+          },
+        },
+      });
+
+      if (!table) throw new Error("Table not found");
+      return table;
+    }),
+  
+  rowsInfinite: protectedProcedure
+    .input(
+      z.object({
+        baseId: z.string().min(1),
+        tableId: z.string().min(1),
+        cursor: z.number().int().optional(), // rowIndex to start from
+        limit: z.number().int().min(10).max(200).default(50),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      // ownership check (cheap + safe)
+      const ok = await ctx.db.table.findFirst({
+        where: {
+          id: input.tableId,
+          baseId: input.baseId,
+          base: { ownerId: ctx.session.user.id },
+        },
+        select: { id: true },
+      });
+      if (!ok) throw new Error("Table not found");
+
+      const start = input.cursor ?? 0;
+
+      const rows = await ctx.db.row.findMany({
+        where: { tableId: input.tableId, rowIndex: { gte: start } },
+        orderBy: { rowIndex: "asc" },
+        take: input.limit,
+        select: {
+          id: true,
+          rowIndex: true,
+          cells: {
+            select: { columnId: true, textValue: true, numberValue: true },
+          },
+        },
+      });
+
+      const nextCursor =
+        rows.length === input.limit ? rows[rows.length - 1]!.rowIndex + 1 : null;
+
+      return { rows, nextCursor };
+    }),
+
+
   create: protectedProcedure
     .input(
       z.object({
