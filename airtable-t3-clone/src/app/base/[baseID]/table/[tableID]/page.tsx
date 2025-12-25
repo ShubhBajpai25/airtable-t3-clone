@@ -14,8 +14,6 @@ export default async function TablePage({
 
   const { baseId, tableId } = await params;
 
-  void api.table.getMeta.prefetch({ tableId });
-
   return (
     <HydrateClient>
       <main className="min-h-screen bg-gradient-to-b from-[#2e026d] to-[#15162c] p-8 text-white">
