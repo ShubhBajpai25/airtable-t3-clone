@@ -8,12 +8,14 @@ import { TableList } from "~/app/_components/table-list";
 export default async function BasePage({
   params,
 }: {
-  params: { baseId: string };
+  params: Promise<{ baseId: string }>;
 }) {
   const session = await auth();
   if (!session?.user) redirect("/api/auth/signin");
 
-  void api.table.list.prefetch({ baseId: params.baseId });
+  const { baseId } = await params;
+
+  void api.table.list.prefetch({ baseId });
 
   return (
     <HydrateClient>
@@ -24,7 +26,11 @@ export default async function BasePage({
           </Link>
 
           <h1 className="text-3xl font-bold">Tables</h1>
-          <TableList baseId={params.baseId} />
+
+          {/* optional debug */}
+          {/* <p className="text-white/60">baseId: {baseId}</p> */}
+
+          <TableList baseId={baseId} />
         </div>
       </main>
     </HydrateClient>
