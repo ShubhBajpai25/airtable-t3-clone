@@ -15,7 +15,7 @@ export function TableGrid({ baseId, tableId }: Props) {
   const meta = api.table.getMeta.useQuery({ baseId, tableId });
 
   const rowsQ = api.table.rowsInfinite.useInfiniteQuery(
-    { baseId, tableId, limit: 50 },
+    { baseId, tableId, limit: 500 },
     {
       getNextPageParam: (last) => last.nextCursor ?? undefined,
       enabled: !!meta.data,

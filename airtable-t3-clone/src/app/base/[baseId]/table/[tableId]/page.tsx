@@ -25,10 +25,6 @@ export default async function TablePage({
 
           <h1 className="text-3xl font-bold">Table</h1>
           <TableGrid baseId={baseId} tableId={tableId} />
-
-          <p className="text-white/70">
-            Next: TanStack Table + Virtualizer + paginated rows API.
-          </p>
         </div>
       </main>
     </HydrateClient>
