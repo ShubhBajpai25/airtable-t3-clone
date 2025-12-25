@@ -57,7 +57,7 @@ export const tableRouter = createTRPCRouter({
         baseId: z.string().min(1),
         tableId: z.string().min(1),
         cursor: z.number().int().optional(), // rowIndex to start from
-        limit: z.number().int().min(10).max(200).default(50),
+        limit: z.number().int().min(10).max(500).default(50),
       }),
     )
     .query(async ({ ctx, input }) => {
