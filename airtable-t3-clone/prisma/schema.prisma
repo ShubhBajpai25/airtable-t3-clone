@@ -49,6 +49,7 @@ model Table {
 
   @@unique([baseId, name])
   @@index([baseId])
+  @@index([baseId, updatedAt])
 }
 
 model Column {
@@ -98,10 +99,7 @@ model Cell {
   columnId String
 
   @@unique([rowId, columnId])
-  @@index([rowId])
   @@index([columnId])
-  @@index([columnId, textValue])
-  @@index([columnId, numberValue])
 }
 
 // Necessary for Next auth

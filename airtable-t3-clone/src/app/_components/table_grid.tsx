@@ -12,13 +12,23 @@ import { api } from "~/trpc/react";
 type Props = { baseId: string; tableId: string };
 
 export function TableGrid({ baseId, tableId }: Props) {
+  const utils = api.useUtils();
+
   const meta = api.table.getMeta.useQuery({ baseId, tableId });
 
+  const addRowsMut = api.table.addRows.useMutation({
+    onSuccess: async () => {
+      // if you were at the "end", this forces hasNextPage/nextCursor to update
+      await utils.table.rowsInfinite.invalidate();
+      await utils.table.getMeta.invalidate({ baseId, tableId });
+    },
+  });
+
   const rowsQ = api.table.rowsInfinite.useInfiniteQuery(
-    { baseId, tableId, limit: 100 }, //end of page, fetch 100 at a time
+    { baseId, tableId, limit: 100 },
     {
       getNextPageParam: (last) => last.nextCursor ?? undefined,
-      enabled: !!meta.data,
+      enabled: meta.isSuccess,
     },
   );
 
@@ -27,7 +37,6 @@ export function TableGrid({ baseId, tableId }: Props) {
     [rowsQ.data],
   );
 
-  // Convert row.cells[] -> lookup by columnId for table accessors
   const data = React.useMemo(() => {
     return flatRows.map((r) => {
       const cellMap: Record<string, string | number | null> = {};
@@ -65,26 +74,42 @@ export function TableGrid({ baseId, tableId }: Props) {
     overscan: 20,
   });
 
-  // Fetch next page when nearing bottom
+  const rowCount = table.getRowModel().rows.length;
+
   React.useEffect(() => {
     const vItems = rowVirtualizer.getVirtualItems();
     const last = vItems[vItems.length - 1];
     if (!last) return;
 
     if (
-      last.index >= table.getRowModel().rows.length - 10 &&
+      last.index >= rowCount - 10 &&
       rowsQ.hasNextPage &&
       !rowsQ.isFetchingNextPage
     ) {
       void rowsQ.fetchNextPage();
     }
-  }, [rowVirtualizer.getVirtualItems(), rowsQ, table]);
+  }, [rowVirtualizer, rowCount, rowsQ.hasNextPage, rowsQ.isFetchingNextPage, rowsQ.fetchNextPage]);
 
   if (meta.isLoading) return <p>Loading table…</p>;
   if (meta.error) return <p className="text-red-300">{meta.error.message}</p>;
 
   return (
     <div className="rounded-xl bg-white/5 p-3">
+      {/* actions */}
+      <div className="mb-3 flex items-center justify-between">
+        <div className="text-white/80">
+          Rows: <span className="font-semibold">{meta.data?.rowCount ?? 0}</span>
+        </div>
+
+        <button
+          className="rounded-md bg-white/20 px-4 py-2 font-semibold hover:bg-white/30 disabled:opacity-50"
+          disabled={addRowsMut.isPending}
+          onClick={() => addRowsMut.mutate({ baseId, tableId, count: 100_000 })}
+        >
+          {addRowsMut.isPending ? "Adding…" : "Add 100k rows"}
+        </button>
+      </div>
+
       {/* header */}
       <div className="mb-2 flex gap-3 text-white/90">
         {meta.data!.columns.map((c) => (
@@ -108,6 +133,7 @@ export function TableGrid({ baseId, tableId }: Props) {
           {rowVirtualizer.getVirtualItems().map((vRow) => {
             const row = table.getRowModel().rows[vRow.index];
             if (!row) return null;
+
             return (
               <div
                 key={row.id}
