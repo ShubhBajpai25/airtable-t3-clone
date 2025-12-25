@@ -107,6 +107,7 @@ export function TableGrid({ baseId, tableId }: Props) {
         >
           {rowVirtualizer.getVirtualItems().map((vRow) => {
             const row = table.getRowModel().rows[vRow.index];
+            if (!row) return null;
             return (
               <div
                 key={row.id}
