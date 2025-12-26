@@ -309,3 +309,4 @@ export const tableRouter = createTRPCRouter({
 
     return result;
   }),
+});
