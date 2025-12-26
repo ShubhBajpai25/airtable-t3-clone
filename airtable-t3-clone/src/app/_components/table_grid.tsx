@@ -12,12 +12,13 @@ import { api } from "~/trpc/react";
 type Props = { baseId: string; tableId: string };
 
 export function TableGrid({ baseId, tableId }: Props) {
+  const PAGE_SIZE = 100;
   const utils = api.useUtils();
 
   const meta = api.table.getMeta.useQuery({ baseId, tableId });
 
   const rowsQ = api.table.rowsInfinite.useInfiniteQuery(
-    { baseId, tableId, limit: 100 },
+    { baseId, tableId, limit: PAGE_SIZE },
     {
       getNextPageParam: (last) => last.nextCursor ?? undefined,
       enabled: meta.isSuccess,
@@ -26,16 +27,9 @@ export function TableGrid({ baseId, tableId }: Props) {
 
   const addRowsMut = api.table.addRows.useMutation({
     onSuccess: async () => {
-      // ✅ invalidate ALL cached pages of the infinite query
-      await utils.table.rowsInfinite.invalidate();
+      // refresh total rowCount + infinite paging state (hasNextPage/nextCursor)
       await utils.table.getMeta.invalidate({ baseId, tableId });
-
-      // ✅ force the hook to recompute hasNextPage / nextCursor
-      await rowsQ.refetch();
-    },
-    onError: (e) => {
-      console.error(e);
-      alert(e.message);
+      await utils.table.rowsInfinite.invalidate({ baseId, tableId, limit: PAGE_SIZE });
     },
   });
 
@@ -54,29 +48,17 @@ export function TableGrid({ baseId, tableId }: Props) {
     });
   }, [flatRows]);
 
-  // Add a visible row index column first so you can "see" newly-added blank rows
   const columns = React.useMemo<ColumnDef<(typeof data)[number]>[]>(() => {
     const cols = meta.data?.columns ?? [];
-
-    const idxCol: ColumnDef<(typeof data)[number]> = {
-      id: "__rowIndex",
-      header: "#",
-      cell: ({ row }) => (
-        <span className="text-white/60">{row.original.rowIndex}</span>
-      ),
-    };
-
-    const dynamicCols = cols.map((c) => ({
+    return cols.map((c) => ({
       id: c.id,
       header: c.name,
-      cell: ({ row }: { row: { original: (typeof data)[number] } }) => {
+      cell: ({ row }) => {
         const v = row.original.cellMap[c.id];
         return <span>{v == null ? "" : String(v)}</span>;
       },
     }));
-
-    return [idxCol, ...dynamicCols];
-  }, [meta.data, data]);
+  }, [meta.data]);
 
   const table = useReactTable({
     data,
@@ -93,24 +75,24 @@ export function TableGrid({ baseId, tableId }: Props) {
     overscan: 20,
   });
 
-  const rowCount = table.getRowModel().rows.length;
-  const virtualRows = rowVirtualizer.getVirtualItems();
+  const loadedRowCount = table.getRowModel().rows.length;
+  const totalRowCount = meta.data?.rowCount ?? 0;
 
-  // Fetch next page when nearing bottom (dependency fixed)
   React.useEffect(() => {
-    const last = virtualRows[virtualRows.length - 1];
+    const vItems = rowVirtualizer.getVirtualItems();
+    const last = vItems[vItems.length - 1];
     if (!last) return;
 
     if (
-      last.index >= rowCount - 10 &&
+      last.index >= loadedRowCount - 10 &&
       rowsQ.hasNextPage &&
       !rowsQ.isFetchingNextPage
     ) {
       void rowsQ.fetchNextPage();
     }
   }, [
-    virtualRows,
-    rowCount,
+    rowVirtualizer,
+    loadedRowCount,
     rowsQ.hasNextPage,
     rowsQ.isFetchingNextPage,
     rowsQ.fetchNextPage,
@@ -119,43 +101,35 @@ export function TableGrid({ baseId, tableId }: Props) {
   if (meta.isLoading) return <p>Loading table…</p>;
   if (meta.error) return <p className="text-red-300">{meta.error.message}</p>;
 
+  const lastLoadedRowIndex =
+    flatRows.length > 0 ? flatRows[flatRows.length - 1]!.rowIndex : null;
+
   return (
     <div className="rounded-xl bg-white/5 p-3">
-      {/* actions */}
-      <div className="mb-3 flex items-center justify-between">
+      {/* actions + checks */}
+      <div className="mb-3 flex items-center justify-between gap-4">
         <div className="text-white/80">
-          Rows (DB):{" "}
-          <span className="font-semibold">{meta.data?.rowCount ?? 0}</span>
-          <span className="ml-4 text-white/50">
-            Loaded: {rowCount}
+          Rows (DB): <span className="font-semibold">{totalRowCount}</span>{" "}
+          <span className="mx-2 text-white/40">•</span>
+          Loaded: <span className="font-semibold">{loadedRowCount}</span>{" "}
+          <span className="mx-2 text-white/40">•</span>
+          Last loaded rowIndex:{" "}
+          <span className="font-semibold">
+            {lastLoadedRowIndex == null ? "—" : lastLoadedRowIndex}
           </span>
         </div>
 
-        <div className="flex gap-2">
-          <button
-            className="rounded-md bg-white/15 px-4 py-2 font-semibold hover:bg-white/25 disabled:opacity-50"
-            disabled={addRowsMut.isPending}
-            onClick={() => addRowsMut.mutate({ baseId, tableId, count: 10_000 })}
-          >
-            {addRowsMut.isPending ? "Adding…" : "Add 10k rows"}
-          </button>
-
-          <button
-            className="rounded-md bg-white/20 px-4 py-2 font-semibold hover:bg-white/30 disabled:opacity-50"
-            disabled={addRowsMut.isPending}
-            onClick={() => addRowsMut.mutate({ baseId, tableId, count: 100_000 })}
-          >
-            {addRowsMut.isPending ? "Adding…" : "Add 100k rows"}
-          </button>
-        </div>
+        <button
+          className="rounded-md bg-white/20 px-4 py-2 font-semibold hover:bg-white/30 disabled:opacity-50"
+          disabled={addRowsMut.isPending}
+          onClick={() => addRowsMut.mutate({ baseId, tableId, count: 100_000 })}
+        >
+          {addRowsMut.isPending ? "Adding…" : "Add 100k rows"}
+        </button>
       </div>
 
       {/* header */}
       <div className="mb-2 flex gap-3 text-white/90">
-        {/* Row index header */}
-        <div className="min-w-[72px] font-semibold text-white/70">#</div>
-
-        {/* Dynamic headers */}
         {meta.data!.columns.map((c) => (
           <div key={c.id} className="min-w-[180px] font-semibold">
             {c.name}
@@ -174,7 +148,7 @@ export function TableGrid({ baseId, tableId }: Props) {
             position: "relative",
           }}
         >
-          {virtualRows.map((vRow) => {
+          {rowVirtualizer.getVirtualItems().map((vRow) => {
             const row = table.getRowModel().rows[vRow.index];
             if (!row) return null;
 
@@ -190,12 +164,6 @@ export function TableGrid({ baseId, tableId }: Props) {
                 }}
                 className="flex border-b border-white/5"
               >
-                {/* row index cell */}
-                <div className="min-w-[72px] px-2 py-2 text-white/60">
-                  {row.original.rowIndex}
-                </div>
-
-                {/* data cells */}
                 {meta.data!.columns.map((c) => (
                   <div key={c.id} className="min-w-[180px] px-2 py-2">
                     {String(row.original.cellMap[c.id] ?? "")}
