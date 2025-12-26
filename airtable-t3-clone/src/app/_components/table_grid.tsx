@@ -69,6 +69,7 @@ export function TableGrid({ baseId, tableId }: Props) {
   const parentRef = React.useRef<HTMLDivElement>(null);
 
   const rowVirtualizer = useVirtualizer({
+
     count: table.getRowModel().rows.length,
     getScrollElement: () => parentRef.current,
     estimateSize: () => 34,
@@ -77,21 +78,22 @@ export function TableGrid({ baseId, tableId }: Props) {
 
   const loadedRowCount = table.getRowModel().rows.length;
   const totalRowCount = meta.data?.rowCount ?? 0;
+  const virtualItems = rowVirtualizer.getVirtualItems();
+  const lastVirtualItem = virtualItems[virtualItems.length - 1];
+  const lastVirtualIndex = lastVirtualItem?.index ?? -1;
 
   React.useEffect(() => {
-    const vItems = rowVirtualizer.getVirtualItems();
-    const last = vItems[vItems.length - 1];
-    if (!last) return;
+    if (lastVirtualIndex < 0) return;
 
     if (
-      last.index >= loadedRowCount - 10 &&
+      lastVirtualIndex >= loadedRowCount - 10 &&
       rowsQ.hasNextPage &&
       !rowsQ.isFetchingNextPage
     ) {
       void rowsQ.fetchNextPage();
     }
   }, [
-    rowVirtualizer,
+    lastVirtualIndex,
     loadedRowCount,
     rowsQ.hasNextPage,
     rowsQ.isFetchingNextPage,
