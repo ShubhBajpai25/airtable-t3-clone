@@ -174,46 +174,52 @@ export const tableRouter = createTRPCRouter({
 
   // SPEC: add blank rows only (no cells created)
   addRows: protectedProcedure
-    .input(
-      z.object({
-        baseId: z.string().min(1),
-        tableId: z.string().min(1),
-        count: z.number().int().min(1).max(1_000_000).default(100_000),
-      }),
-    )
-    .mutation(async ({ ctx, input }) => {
-      const ok = await ctx.db.table.findFirst({
-        where: {
-          id: input.tableId,
-          baseId: input.baseId,
-          base: { ownerId: ctx.session.user.id },
-        },
-        select: { id: true },
-      });
-      if (!ok) throw new Error("Table not found");
-
-      const result = await ctx.db.$transaction(async (tx) => {
-        const agg = await tx.row.aggregate({
-          where: { tableId: input.tableId },
-          _max: { rowIndex: true },
-        });
-
-        const start = (agg._max.rowIndex ?? -1) + 1;
-        const total = input.count;
-
-        const BATCH = 5000;
-        for (let offset = 0; offset < total; offset += BATCH) {
-          const size = Math.min(BATCH, total - offset);
-          const data = Array.from({ length: size }, (_, i) => ({
-            tableId: input.tableId,
-            rowIndex: start + offset + i,
-          }));
-          await tx.row.createMany({ data });
-        }
-
-        return { added: total, startRowIndex: start, endRowIndex: start + total - 1 };
-      });
-
-      return result;
+  .input(
+    z.object({
+      baseId: z.string().min(1),
+      tableId: z.string().min(1),
+      count: z.number().int().min(1).max(1_000_000),
     }),
+  )
+  .mutation(async ({ ctx, input }) => {
+    const ok = await ctx.db.table.findFirst({
+      where: {
+        id: input.tableId,
+        baseId: input.baseId,
+        base: { ownerId: ctx.session.user.id },
+      },
+      select: { id: true },
+    });
+    if (!ok) throw new Error("Table not found");
+
+    // Find the next rowIndex start (fast, uses your index)
+    const agg = await ctx.db.row.aggregate({
+      where: { tableId: input.tableId },
+      _max: { rowIndex: true },
+    });
+
+    const start = (agg._max.rowIndex ?? -1) + 1;
+    const total = input.count;
+
+    const BATCH = 5_000; // matches your client chunk; can be 1_000 if needed
+    for (let offset = 0; offset < total; offset += BATCH) {
+      const size = Math.min(BATCH, total - offset);
+
+      const data = Array.from({ length: size }, (_, i) => ({
+        tableId: input.tableId,
+        rowIndex: start + offset + i,
+      }));
+
+      await ctx.db.row.createMany({
+        data,
+        skipDuplicates: true,
+      });
+    }
+
+    return {
+      added: total,
+      startRowIndex: start,
+      endRowIndex: start + total - 1,
+    };
+  }),
 });

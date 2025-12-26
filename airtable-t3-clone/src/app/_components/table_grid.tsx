@@ -13,7 +13,13 @@ type Props = { baseId: string; tableId: string };
 
 export function TableGrid({ baseId, tableId }: Props) {
   const PAGE_SIZE = 100;
+  const ADD_TOTAL = 100_000;
+  const CHUNK_SIZE = 5_000; // <— safe chunk size; reduce to 1_000 if still timing out
+
   const utils = api.useUtils();
+
+  const [addProgress, setAddProgress] = React.useState(0);
+  const [addErr, setAddErr] = React.useState<string | null>(null);
 
   const meta = api.table.getMeta.useQuery({ baseId, tableId });
 
@@ -25,13 +31,35 @@ export function TableGrid({ baseId, tableId }: Props) {
     },
   );
 
-  const addRowsMut = api.table.addRows.useMutation({
-    onSuccess: async () => {
-      // refresh total rowCount + infinite paging state (hasNextPage/nextCursor)
+  const addRowsMut = api.table.addRows.useMutation();
+
+  const handleAdd100k = async () => {
+    setAddErr(null);
+    setAddProgress(0);
+
+    try {
+      let remaining = ADD_TOTAL;
+
+      while (remaining > 0) {
+        const n = Math.min(CHUNK_SIZE, remaining);
+
+        // each call inserts n blank rows, fast enough to not time out
+        await addRowsMut.mutateAsync({ baseId, tableId, count: n });
+
+        remaining -= n;
+        setAddProgress(ADD_TOTAL - remaining);
+      }
+
+      // refresh counts + paging state once at the end
       await utils.table.getMeta.invalidate({ baseId, tableId });
       await utils.table.rowsInfinite.invalidate({ baseId, tableId, limit: PAGE_SIZE });
-    },
-  });
+
+      // optional: refetch immediately so the UI reflects the new rowCount right away
+      void meta.refetch();
+    } catch (e) {
+      setAddErr(e instanceof Error ? e.message : String(e));
+    }
+  };
 
   const flatRows = React.useMemo(
     () => rowsQ.data?.pages.flatMap((p) => p.rows) ?? [],
@@ -53,10 +81,7 @@ export function TableGrid({ baseId, tableId }: Props) {
     return cols.map((c) => ({
       id: c.id,
       header: c.name,
-      cell: ({ row }) => {
-        const v = row.original.cellMap[c.id];
-        return <span>{String(v ?? "")}</span>;
-      },
+      cell: ({ row }) => <span>{String(row.original.cellMap[c.id] ?? "")}</span>,
     }));
   }, [meta.data]);
 
@@ -69,7 +94,6 @@ export function TableGrid({ baseId, tableId }: Props) {
   const parentRef = React.useRef<HTMLDivElement>(null);
 
   const rowVirtualizer = useVirtualizer({
-
     count: table.getRowModel().rows.length,
     getScrollElement: () => parentRef.current,
     estimateSize: () => 34,
@@ -78,6 +102,7 @@ export function TableGrid({ baseId, tableId }: Props) {
 
   const loadedRowCount = table.getRowModel().rows.length;
   const totalRowCount = meta.data?.rowCount ?? 0;
+
   const virtualItems = rowVirtualizer.getVirtualItems();
   const lastVirtualItem = virtualItems[virtualItems.length - 1];
   const lastVirtualIndex = lastVirtualItem?.index ?? -1;
@@ -105,7 +130,6 @@ export function TableGrid({ baseId, tableId }: Props) {
 
   const lastLoadedRowIndex = flatRows.at(-1)?.rowIndex;
 
-
   return (
     <div className="rounded-xl bg-white/5 p-3">
       {/* actions + checks */}
@@ -116,19 +140,25 @@ export function TableGrid({ baseId, tableId }: Props) {
           Loaded: <span className="font-semibold">{loadedRowCount}</span>{" "}
           <span className="mx-2 text-white/40">•</span>
           Last loaded rowIndex:{" "}
-          <span className="font-semibold">
-            {lastLoadedRowIndex ?? "—"}
-          </span>
+          <span className="font-semibold">{lastLoadedRowIndex ?? "—"}</span>
+          {addProgress > 0 && (
+            <>
+              <span className="mx-2 text-white/40">•</span>
+              Added: <span className="font-semibold">{addProgress}</span>
+            </>
+          )}
         </div>
 
         <button
           className="rounded-md bg-white/20 px-4 py-2 font-semibold hover:bg-white/30 disabled:opacity-50"
           disabled={addRowsMut.isPending}
-          onClick={() => addRowsMut.mutate({ baseId, tableId, count: 100_000 })}
+          onClick={handleAdd100k}
         >
           {addRowsMut.isPending ? "Adding…" : "Add 100k rows"}
         </button>
       </div>
+
+      {addErr && <div className="mb-3 text-red-300">Add rows failed: {addErr}</div>}
 
       {/* header */}
       <div className="mb-2 flex gap-3 text-white/90">
