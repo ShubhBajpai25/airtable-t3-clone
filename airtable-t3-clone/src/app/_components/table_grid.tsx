@@ -55,7 +55,7 @@ export function TableGrid({ baseId, tableId }: Props) {
       header: c.name,
       cell: ({ row }) => {
         const v = row.original.cellMap[c.id];
-        return <span>{v == null ? "" : String(v)}</span>;
+        return <span>{String(v ?? "")}</span>;
       },
     }));
   }, [meta.data]);
@@ -101,7 +101,7 @@ export function TableGrid({ baseId, tableId }: Props) {
   if (meta.isLoading) return <p>Loading table…</p>;
   if (meta.error) return <p className="text-red-300">{meta.error.message}</p>;
 
-  const lastLoadedRowIndex = flatRows.at(-1)?.rowIndex ?? null;
+  const lastLoadedRowIndex = flatRows.at(-1)?.rowIndex;
 
 
   return (
@@ -115,7 +115,7 @@ export function TableGrid({ baseId, tableId }: Props) {
           <span className="mx-2 text-white/40">•</span>
           Last loaded rowIndex:{" "}
           <span className="font-semibold">
-            {lastLoadedRowIndex == null ? "—" : lastLoadedRowIndex}
+            {lastLoadedRowIndex ?? "—"}
           </span>
         </div>
 
