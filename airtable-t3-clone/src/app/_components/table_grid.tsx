@@ -101,8 +101,8 @@ export function TableGrid({ baseId, tableId }: Props) {
   if (meta.isLoading) return <p>Loading table…</p>;
   if (meta.error) return <p className="text-red-300">{meta.error.message}</p>;
 
-  const lastLoadedRowIndex =
-    flatRows.length > 0 ? flatRows[flatRows.length - 1]!.rowIndex : null;
+  const lastLoadedRowIndex = flatRows.at(-1)?.rowIndex ?? null;
+
 
   return (
     <div className="rounded-xl bg-white/5 p-3">
