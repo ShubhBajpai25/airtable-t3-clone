@@ -16,14 +16,6 @@ export function TableGrid({ baseId, tableId }: Props) {
 
   const meta = api.table.getMeta.useQuery({ baseId, tableId });
 
-  const addRowsMut = api.table.addRows.useMutation({
-    onSuccess: async () => {
-      // if you were at the "end", this forces hasNextPage/nextCursor to update
-      await utils.table.rowsInfinite.invalidate();
-      await utils.table.getMeta.invalidate({ baseId, tableId });
-    },
-  });
-
   const rowsQ = api.table.rowsInfinite.useInfiniteQuery(
     { baseId, tableId, limit: 100 },
     {
@@ -31,6 +23,21 @@ export function TableGrid({ baseId, tableId }: Props) {
       enabled: meta.isSuccess,
     },
   );
+
+  const addRowsMut = api.table.addRows.useMutation({
+    onSuccess: async () => {
+      // ✅ invalidate ALL cached pages of the infinite query
+      await utils.table.rowsInfinite.invalidate();
+      await utils.table.getMeta.invalidate({ baseId, tableId });
+
+      // ✅ force the hook to recompute hasNextPage / nextCursor
+      await rowsQ.refetch();
+    },
+    onError: (e) => {
+      console.error(e);
+      alert(e.message);
+    },
+  });
 
   const flatRows = React.useMemo(
     () => rowsQ.data?.pages.flatMap((p) => p.rows) ?? [],
@@ -47,17 +54,29 @@ export function TableGrid({ baseId, tableId }: Props) {
     });
   }, [flatRows]);
 
+  // Add a visible row index column first so you can "see" newly-added blank rows
   const columns = React.useMemo<ColumnDef<(typeof data)[number]>[]>(() => {
     const cols = meta.data?.columns ?? [];
-    return cols.map((c) => ({
+
+    const idxCol: ColumnDef<(typeof data)[number]> = {
+      id: "__rowIndex",
+      header: "#",
+      cell: ({ row }) => (
+        <span className="text-white/60">{row.original.rowIndex}</span>
+      ),
+    };
+
+    const dynamicCols = cols.map((c) => ({
       id: c.id,
       header: c.name,
-      cell: ({ row }) => {
+      cell: ({ row }: { row: { original: (typeof data)[number] } }) => {
         const v = row.original.cellMap[c.id];
         return <span>{v == null ? "" : String(v)}</span>;
       },
     }));
-  }, [meta.data]);
+
+    return [idxCol, ...dynamicCols];
+  }, [meta.data, data]);
 
   const table = useReactTable({
     data,
@@ -75,10 +94,11 @@ export function TableGrid({ baseId, tableId }: Props) {
   });
 
   const rowCount = table.getRowModel().rows.length;
+  const virtualRows = rowVirtualizer.getVirtualItems();
 
+  // Fetch next page when nearing bottom (dependency fixed)
   React.useEffect(() => {
-    const vItems = rowVirtualizer.getVirtualItems();
-    const last = vItems[vItems.length - 1];
+    const last = virtualRows[virtualRows.length - 1];
     if (!last) return;
 
     if (
@@ -88,7 +108,13 @@ export function TableGrid({ baseId, tableId }: Props) {
     ) {
       void rowsQ.fetchNextPage();
     }
-  }, [rowVirtualizer, rowCount, rowsQ.hasNextPage, rowsQ.isFetchingNextPage, rowsQ.fetchNextPage]);
+  }, [
+    virtualRows,
+    rowCount,
+    rowsQ.hasNextPage,
+    rowsQ.isFetchingNextPage,
+    rowsQ.fetchNextPage,
+  ]);
 
   if (meta.isLoading) return <p>Loading table…</p>;
   if (meta.error) return <p className="text-red-300">{meta.error.message}</p>;
@@ -98,20 +124,38 @@ export function TableGrid({ baseId, tableId }: Props) {
       {/* actions */}
       <div className="mb-3 flex items-center justify-between">
         <div className="text-white/80">
-          Rows: <span className="font-semibold">{meta.data?.rowCount ?? 0}</span>
+          Rows (DB):{" "}
+          <span className="font-semibold">{meta.data?.rowCount ?? 0}</span>
+          <span className="ml-4 text-white/50">
+            Loaded: {rowCount}
+          </span>
         </div>
 
-        <button
-          className="rounded-md bg-white/20 px-4 py-2 font-semibold hover:bg-white/30 disabled:opacity-50"
-          disabled={addRowsMut.isPending}
-          onClick={() => addRowsMut.mutate({ baseId, tableId, count: 100_000 })}
-        >
-          {addRowsMut.isPending ? "Adding…" : "Add 100k rows"}
-        </button>
+        <div className="flex gap-2">
+          <button
+            className="rounded-md bg-white/15 px-4 py-2 font-semibold hover:bg-white/25 disabled:opacity-50"
+            disabled={addRowsMut.isPending}
+            onClick={() => addRowsMut.mutate({ baseId, tableId, count: 10_000 })}
+          >
+            {addRowsMut.isPending ? "Adding…" : "Add 10k rows"}
+          </button>
+
+          <button
+            className="rounded-md bg-white/20 px-4 py-2 font-semibold hover:bg-white/30 disabled:opacity-50"
+            disabled={addRowsMut.isPending}
+            onClick={() => addRowsMut.mutate({ baseId, tableId, count: 100_000 })}
+          >
+            {addRowsMut.isPending ? "Adding…" : "Add 100k rows"}
+          </button>
+        </div>
       </div>
 
       {/* header */}
       <div className="mb-2 flex gap-3 text-white/90">
+        {/* Row index header */}
+        <div className="min-w-[72px] font-semibold text-white/70">#</div>
+
+        {/* Dynamic headers */}
         {meta.data!.columns.map((c) => (
           <div key={c.id} className="min-w-[180px] font-semibold">
             {c.name}
@@ -130,7 +174,7 @@ export function TableGrid({ baseId, tableId }: Props) {
             position: "relative",
           }}
         >
-          {rowVirtualizer.getVirtualItems().map((vRow) => {
+          {virtualRows.map((vRow) => {
             const row = table.getRowModel().rows[vRow.index];
             if (!row) return null;
 
@@ -146,6 +190,12 @@ export function TableGrid({ baseId, tableId }: Props) {
                 }}
                 className="flex border-b border-white/5"
               >
+                {/* row index cell */}
+                <div className="min-w-[72px] px-2 py-2 text-white/60">
+                  {row.original.rowIndex}
+                </div>
+
+                {/* data cells */}
                 {meta.data!.columns.map((c) => (
                   <div key={c.id} className="min-w-[180px] px-2 py-2">
                     {String(row.original.cellMap[c.id] ?? "")}
