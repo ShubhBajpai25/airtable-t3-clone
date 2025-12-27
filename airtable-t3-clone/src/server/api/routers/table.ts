@@ -450,6 +450,58 @@ export const tableRouter = createTRPCRouter({
       return { ok: true };
     }),
 
+    reorderColumns: protectedProcedure
+  .input(
+    z.object({
+      baseId: z.string().min(1),
+      tableId: z.string().min(1),
+      orderedColumnIds: z.array(z.string().min(1)).min(1),
+    }),
+  )
+  .mutation(async ({ ctx, input }) => {
+    // ownership check
+    const ok = await ctx.db.table.findFirst({
+      where: {
+        id: input.tableId,
+        baseId: input.baseId,
+        base: { ownerId: ctx.session.user.id },
+      },
+      select: { id: true },
+    });
+    if (!ok) throw new Error("Table not found");
+
+    const existing = await ctx.db.column.findMany({
+      where: { tableId: input.tableId },
+      select: { id: true },
+    });
+
+    // ensure same set (prevents weird/malicious reorder payloads)
+    const existingSet = new Set(existing.map((c) => c.id));
+    if (existing.length !== input.orderedColumnIds.length) {
+      throw new Error("Invalid column ordering");
+    }
+    for (const id of input.orderedColumnIds) {
+      if (!existingSet.has(id)) throw new Error("Invalid column ordering");
+    }
+
+    await ctx.db.$transaction(async (tx) => {
+      // avoid @@unique([tableId, order]) collisions
+      await tx.column.updateMany({
+        where: { tableId: input.tableId },
+        data: { order: { increment: 1000 } },
+      });
+
+      for (let i = 0; i < input.orderedColumnIds.length; i++) {
+        await tx.column.update({
+          where: { id: input.orderedColumnIds[i]! },
+          data: { order: i },
+        });
+      }
+    });
+
+    return { ok: true };
+  }),
+
   renameColumn: protectedProcedure
   .input(
     z.object({

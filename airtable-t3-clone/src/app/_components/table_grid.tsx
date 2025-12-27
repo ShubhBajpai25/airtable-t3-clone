@@ -2,12 +2,23 @@
 
 import * as React from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import {
-  getCoreRowModel,
-  useReactTable,
-  type ColumnDef,
-} from "@tanstack/react-table";
 import { api } from "~/trpc/react";
+
+// ✅ Drag/drop
+import {
+  DndContext,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  useSortable,
+  arrayMove,
+  horizontalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 type Props = { baseId: string; tableId: string };
 
@@ -33,7 +44,7 @@ export function EditableHeader(props: {
     return (
       <button
         type="button"
-        className="min-w-[180px] px-2 py-2 text-left font-semibold hover:bg-white/5"
+        className="w-full px-2 py-2 text-left font-semibold hover:bg-white/5"
         onDoubleClick={() => setEditing(true)}
         title="Double click to rename"
       >
@@ -46,7 +57,7 @@ export function EditableHeader(props: {
     <input
       autoFocus
       disabled={props.isSaving}
-      className="min-w-[180px] bg-white/10 px-2 py-2 outline-none"
+      className="w-full bg-white/10 px-2 py-2 outline-none"
       value={draft}
       onChange={(e) => setDraft(e.target.value)}
       onBlur={commit}
@@ -61,11 +72,59 @@ export function EditableHeader(props: {
   );
 }
 
+function SortableHeader({
+  colId,
+  selected,
+  onSelect,
+  children,
+}: {
+  colId: string;
+  selected: boolean;
+  onSelect: () => void;
+  children: React.ReactNode;
+}) {
+  const { setNodeRef, attributes, listeners, transform, transition, isDragging } =
+    useSortable({ id: colId });
+
+  return (
+    <div
+      ref={setNodeRef}
+      onClick={onSelect}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging ? 0.6 : 1,
+      }}
+      className={[
+        "min-w-[180px] rounded-md",
+        selected ? "bg-white/10 ring-2 ring-white/50" : "hover:bg-white/5",
+      ].join(" ")}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0 flex-1">{children}</div>
+
+        {/* drag handle */}
+        <button
+          type="button"
+          className="cursor-grab px-2 py-2 text-white/60 hover:text-white"
+          aria-label="Drag to reorder"
+          onClick={(e) => e.stopPropagation()}
+          {...attributes}
+          {...listeners}
+        >
+          ⠿
+        </button>
+      </div>
+    </div>
+  );
+}
 
 export function TableGrid({ baseId, tableId }: Props) {
   const PAGE_SIZE = 100;
+
+  // chunked add 100k rows (kept)
   const ADD_TOTAL = 100_000;
-  const CHUNK_SIZE = 5_000; // <— safe chunk size; reduce to 1_000 if still timing out
+  const CHUNK_SIZE = 5_000;
 
   const utils = api.useUtils();
 
@@ -82,6 +141,7 @@ export function TableGrid({ baseId, tableId }: Props) {
     },
   );
 
+  // Column add UI (kept)
   const [addingCol, setAddingCol] = React.useState(false);
   const [newColName, setNewColName] = React.useState("");
   const [newColType, setNewColType] = React.useState<"TEXT" | "NUMBER">("TEXT");
@@ -95,98 +155,162 @@ export function TableGrid({ baseId, tableId }: Props) {
     },
   });
 
+  // Rename column (kept)
   const renameColMut = api.table.renameColumn.useMutation({
-  onMutate: async (vars) => {
-    await utils.table.getMeta.cancel({ baseId, tableId });
+    onMutate: async (vars) => {
+      await utils.table.getMeta.cancel({ baseId, tableId });
+      const prev = utils.table.getMeta.getData({ baseId, tableId });
 
-    const prev = utils.table.getMeta.getData({ baseId, tableId });
+      utils.table.getMeta.setData({ baseId, tableId }, (old) => {
+        if (!old) return old;
+        return {
+          ...old,
+          columns: old.columns.map((c) =>
+            c.id === vars.columnId ? { ...c, name: vars.name } : c,
+          ),
+        };
+      });
 
-    utils.table.getMeta.setData({ baseId, tableId }, (old) => {
-      if (!old) return old;
-      return {
-        ...old,
-        columns: old.columns.map((c) =>
-          c.id === vars.columnId ? { ...c, name: vars.name } : c,
-        ),
-      };
-    });
+      return { prev };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.prev) utils.table.getMeta.setData({ baseId, tableId }, ctx.prev);
+    },
+    onSettled: async () => {
+      await utils.table.getMeta.invalidate({ baseId, tableId });
+    },
+  });
 
-    return { prev };
-  },
-  onError: (_err, _vars, ctx) => {
-    if (ctx?.prev) utils.table.getMeta.setData({ baseId, tableId }, ctx.prev);
-  },
-  onSettled: async () => {
-    await utils.table.getMeta.invalidate({ baseId, tableId });
-  },
-});
+  // ✅ Column select + delete (matches recommendation)
+  const [selectedColumnId, setSelectedColumnId] = React.useState<string | null>(
+    null,
+  );
 
-const deleteColMut = api.table.deleteColumn.useMutation({
-  onSuccess: async () => {
-    await utils.table.getMeta.invalidate({ baseId, tableId });
-    await utils.table.rowsInfinite.invalidate({ baseId, tableId, limit: PAGE_SIZE });
-  },
-});
-
-const moveColMut = api.table.moveColumn.useMutation({
-  onSuccess: async () => {
-    await utils.table.getMeta.invalidate({ baseId, tableId });
-  },
-});
-
-
-
-function EditableCell(props: {
-  value: string | number | null | undefined;
-  columnType: "TEXT" | "NUMBER";
-  onCommit: (next: string) => void;
-  isSaving: boolean;
-}) {
-  const display = String(props.value ?? "");
-  const [editing, setEditing] = React.useState(false);
-  const [draft, setDraft] = React.useState(display);
+  const deleteColMut = api.table.deleteColumn.useMutation({
+    onSuccess: async () => {
+      setSelectedColumnId(null);
+      await utils.table.getMeta.invalidate({ baseId, tableId });
+      await utils.table.rowsInfinite.invalidate({ baseId, tableId, limit: PAGE_SIZE });
+    },
+  });
 
   React.useEffect(() => {
-    if (!editing) setDraft(display);
-  }, [display, editing]);
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!selectedColumnId) return;
 
-  const commit = () => {
-    setEditing(false);
-    if (draft !== display) props.onCommit(draft);
+      const t = e.target as HTMLElement | null;
+      const typing =
+        t &&
+        (t.tagName === "INPUT" ||
+          t.tagName === "TEXTAREA" ||
+          (t as HTMLElement).isContentEditable);
+
+      if (typing) return;
+
+      if (e.key === "Backspace" || e.key === "Delete") {
+        e.preventDefault();
+        deleteColMut.mutate({ baseId, tableId, columnId: selectedColumnId });
+      }
+
+      if (e.key === "Escape") setSelectedColumnId(null);
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [selectedColumnId, deleteColMut, baseId, tableId]);
+
+  // ✅ Drag/drop reorder (matches recommendation)
+  // NOTE: this expects you have `api.table.reorderColumns` implemented on the backend.
+  const reorderMut = api.table.reorderColumns.useMutation({
+    onSuccess: async () => {
+      await utils.table.getMeta.invalidate({ baseId, tableId });
+    },
+  });
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+  );
+
+  const onDragEnd = (evt: DragEndEvent) => {
+    const activeId = String(evt.active.id);
+    const overId = evt.over?.id ? String(evt.over.id) : null;
+    if (!overId || activeId === overId) return;
+
+    const cols = meta.data?.columns ?? [];
+    const ids = cols.map((c) => c.id);
+
+    const oldIndex = ids.indexOf(activeId);
+    const newIndex = ids.indexOf(overId);
+    if (oldIndex < 0 || newIndex < 0) return;
+
+    const nextCols = arrayMove(cols, oldIndex, newIndex);
+
+    // optimistic reorder
+    utils.table.getMeta.setData({ baseId, tableId }, (old) => {
+      if (!old) return old;
+      return { ...old, columns: nextCols };
+    });
+
+    reorderMut.mutate({
+      baseId,
+      tableId,
+      orderedColumnIds: nextCols.map((c) => c.id),
+    });
   };
 
-  if (!editing) {
+  // Editable cells (kept)
+  function EditableCell(props: {
+    value: string | number | null | undefined;
+    columnType: "TEXT" | "NUMBER";
+    onCommit: (next: string) => void;
+    isSaving: boolean;
+  }) {
+    const display = String(props.value ?? "");
+    const [editing, setEditing] = React.useState(false);
+    const [draft, setDraft] = React.useState(display);
+
+    React.useEffect(() => {
+      if (!editing) setDraft(display);
+    }, [display, editing]);
+
+    const commit = () => {
+      setEditing(false);
+      if (draft !== display) props.onCommit(draft);
+    };
+
+    if (!editing) {
+      return (
+        <button
+          type="button"
+          className="w-full px-2 py-2 text-left hover:bg-white/5"
+          onClick={() => setEditing(true)}
+        >
+          {display}
+        </button>
+      );
+    }
+
     return (
-      <button
-        type="button"
-        className="w-full text-left px-2 py-2 hover:bg-white/5"
-        onClick={() => setEditing(true)}
-      >
-        {display}
-      </button>
+      <input
+        autoFocus
+        disabled={props.isSaving}
+        className="w-full bg-transparent px-2 py-2 outline-none"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") commit();
+          if (e.key === "Escape") {
+            setEditing(false);
+            setDraft(display);
+          }
+        }}
+        inputMode={props.columnType === "NUMBER" ? "decimal" : "text"}
+      />
     );
   }
 
-  return (
-    <input
-      autoFocus
-      disabled={props.isSaving}
-      className="w-full bg-transparent px-2 py-2 outline-none"
-      value={draft}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") commit();
-        if (e.key === "Escape") {
-          setEditing(false);
-          setDraft(display);
-        }
-      }}
-      inputMode={props.columnType === "NUMBER" ? "decimal" : "text"}
-    />
-  );
-}
-
+  // Add rows (chunked) – kept
   const addRowsMut = api.table.addRows.useMutation();
 
   const handleAdd100k = async () => {
@@ -198,19 +322,13 @@ function EditableCell(props: {
 
       while (remaining > 0) {
         const n = Math.min(CHUNK_SIZE, remaining);
-
-        // each call inserts n blank rows, fast enough to not time out
         await addRowsMut.mutateAsync({ baseId, tableId, count: n });
-
         remaining -= n;
         setAddProgress((prev) => prev + n);
       }
 
-      // refresh counts + paging state once at the end
       await utils.table.getMeta.invalidate({ baseId, tableId });
       await utils.table.rowsInfinite.invalidate({ baseId, tableId, limit: PAGE_SIZE });
-
-      // optional: refetch immediately so the UI reflects the new rowCount right away
       void meta.refetch();
     } catch (e) {
       setAddErr(e instanceof Error ? e.message : String(e));
@@ -227,7 +345,6 @@ function EditableCell(props: {
         limit: PAGE_SIZE,
       });
 
-      // Find column type from meta (for optimistic shape)
       const colType =
         meta.data?.columns.find((c) => c.id === vars.columnId)?.type ?? "TEXT";
 
@@ -279,12 +396,11 @@ function EditableCell(props: {
       }
     },
     onSettled: async () => {
-      // keep it safe/consistent
       await utils.table.rowsInfinite.invalidate({ baseId, tableId, limit: PAGE_SIZE });
     },
   });
 
-
+  // flatten + map rows
   const flatRows = React.useMemo(
     () => rowsQ.data?.pages.flatMap((p) => p.rows) ?? [],
     [rowsQ.data],
@@ -300,36 +416,21 @@ function EditableCell(props: {
     });
   }, [flatRows]);
 
-  const columns = React.useMemo<ColumnDef<(typeof data)[number]>[]>(() => {
-    const cols = meta.data?.columns ?? [];
-    return cols.map((c) => ({
-      id: c.id,
-      header: c.name,
-      cell: ({ row }) => <span>{String(row.original.cellMap[c.id] ?? "")}</span>,
-    }));
-  }, [meta.data]);
-
-  const table = useReactTable({
-    data,
-    columns,
-    getCoreRowModel: getCoreRowModel(),
-  });
-
+  // virtual scrolling
   const parentRef = React.useRef<HTMLDivElement>(null);
 
   const rowVirtualizer = useVirtualizer({
-    count: table.getRowModel().rows.length,
+    count: data.length,
     getScrollElement: () => parentRef.current,
     estimateSize: () => 34,
     overscan: 20,
   });
 
-  const loadedRowCount = table.getRowModel().rows.length;
+  const loadedRowCount = data.length;
   const totalRowCount = meta.data?.rowCount ?? 0;
 
   const virtualItems = rowVirtualizer.getVirtualItems();
-  const lastVirtualItem = virtualItems[virtualItems.length - 1];
-  const lastVirtualIndex = lastVirtualItem?.index ?? -1;
+  const lastVirtualIndex = virtualItems.at(-1)?.index ?? -1;
 
   React.useEffect(() => {
     if (lastVirtualIndex < 0) return;
@@ -352,7 +453,8 @@ function EditableCell(props: {
   if (meta.isLoading) return <p>Loading table…</p>;
   if (meta.error) return <p className="text-red-300">{meta.error.message}</p>;
 
-  const lastLoadedRowIndex = flatRows.at(-1)?.rowIndex;
+  const cols = meta.data?.columns ?? [];
+  const colIds = cols.map((c) => c.id);
 
   return (
     <div className="rounded-xl bg-white/5 p-3">
@@ -430,58 +532,45 @@ function EditableCell(props: {
           >
             {addRowsMut.isPending ? "Adding…" : "Add 100k rows"}
           </button>
+
+          <button
+            className="rounded-md bg-white/20 px-4 py-2 font-semibold hover:bg-white/30 disabled:opacity-50"
+            disabled={!selectedColumnId || deleteColMut.isPending}
+            onClick={() => {
+              if (!selectedColumnId) return;
+              deleteColMut.mutate({ baseId, tableId, columnId: selectedColumnId });
+            }}
+          >
+            Delete column
+          </button>
         </div>
       </div>
 
       {addErr && <div className="mb-3 text-red-300">Add rows failed: {addErr}</div>}
 
-      {/* header */}
-      <div className="mb-2 flex gap-3 text-white/90">
-        {meta.data!.columns.map((c, i) => (
-          <div key={c.id} className="min-w-[180px]">
-            <EditableHeader
-              value={c.name}
-              isSaving={renameColMut.isPending}
-              onCommit={(next) =>
-                renameColMut.mutate({ baseId, tableId, columnId: c.id, name: next })
-              }
-            />
-
-            <div className="mt-1 flex gap-2 text-xs text-white/70">
-              <button
-                type="button"
-                disabled={i === 0 || moveColMut.isPending}
-                onClick={() =>
-                  moveColMut.mutate({ baseId, tableId, columnId: c.id, direction: "left" })
-                }
-                className="hover:text-white disabled:opacity-40"
+      {/* ✅ header: click to select, drag handle to reorder, dbl click to rename */}
+      <DndContext sensors={sensors} onDragEnd={onDragEnd}>
+        <SortableContext items={colIds} strategy={horizontalListSortingStrategy}>
+          <div className="mb-2 flex gap-3 text-white/90">
+            {cols.map((c) => (
+              <SortableHeader
+                key={c.id}
+                colId={c.id}
+                selected={selectedColumnId === c.id}
+                onSelect={() => setSelectedColumnId(c.id)}
               >
-                ←
-              </button>
-
-              <button
-                type="button"
-                disabled={i === meta.data!.columns.length - 1 || moveColMut.isPending}
-                onClick={() =>
-                  moveColMut.mutate({ baseId, tableId, columnId: c.id, direction: "right" })
-                }
-                className="hover:text-white disabled:opacity-40"
-              >
-                →
-              </button>
-
-              <button
-                type="button"
-                disabled={deleteColMut.isPending}
-                onClick={() => deleteColMut.mutate({ baseId, tableId, columnId: c.id })}
-                className="ml-auto hover:text-red-300 disabled:opacity-40"
-              >
-                Delete
-              </button>
-            </div>
+                <EditableHeader
+                  value={c.name}
+                  isSaving={renameColMut.isPending}
+                  onCommit={(next) =>
+                    renameColMut.mutate({ baseId, tableId, columnId: c.id, name: next })
+                  }
+                />
+              </SortableHeader>
+            ))}
           </div>
-        ))}
-      </div>
+        </SortableContext>
+      </DndContext>
 
       {/* body */}
       <div
@@ -495,7 +584,7 @@ function EditableCell(props: {
           }}
         >
           {rowVirtualizer.getVirtualItems().map((vRow) => {
-            const row = table.getRowModel().rows[vRow.index];
+            const row = data[vRow.index];
             if (!row) return null;
 
             return (
@@ -510,17 +599,17 @@ function EditableCell(props: {
                 }}
                 className="flex border-b border-white/5"
               >
-                {meta.data!.columns.map((c) => (
+                {cols.map((c) => (
                   <div key={c.id} className="min-w-[180px] border-r border-white/5">
                     <EditableCell
-                      value={row.original.cellMap[c.id]}
+                      value={row.cellMap[c.id]}
                       columnType={c.type}
                       isSaving={setCellMut.isPending}
                       onCommit={(next) =>
                         setCellMut.mutate({
                           baseId,
                           tableId,
-                          rowId: row.original.id,
+                          rowId: row.id,
                           columnId: c.id,
                           value: next,
                         })
