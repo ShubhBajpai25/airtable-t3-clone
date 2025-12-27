@@ -308,4 +308,58 @@ export const tableRouter = createTRPCRouter({
 
     return { rowId: input.rowId, ...cell };
   }),
+  addColumn: protectedProcedure
+    .input(
+      z.object({
+        baseId: z.string().min(1),
+        tableId: z.string().min(1),
+        name: z.string().min(1).max(80),
+        type: z.nativeEnum(ColumnType),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      // ownership check
+      const table = await ctx.db.table.findFirst({
+        where: {
+          id: input.tableId,
+          baseId: input.baseId,
+          base: { ownerId: ctx.session.user.id },
+        },
+        select: { id: true },
+      });
+      if (!table) throw new Error("Table not found");
+
+      // compute next order
+      const max = await ctx.db.column.aggregate({
+        where: { tableId: input.tableId },
+        _max: { order: true },
+      });
+      const nextOrder = (max._max.order ?? -1) + 1;
+
+      // ensure unique name (simple suffixing)
+      const existing = await ctx.db.column.findMany({
+        where: { tableId: input.tableId },
+        select: { name: true },
+      });
+      const used = new Set(existing.map((c) => c.name.toLowerCase()));
+
+      const baseName = input.name.trim() || "Field";
+      let finalName = baseName;
+      let i = 2;
+      while (used.has(finalName.toLowerCase())) {
+        finalName = `${baseName} ${i++}`;
+      }
+
+      const col = await ctx.db.column.create({
+        data: {
+          tableId: input.tableId,
+          name: finalName,
+          type: input.type,
+          order: nextOrder,
+        },
+        select: { id: true, name: true, type: true, order: true },
+      });
+
+      return col;
+    }),
 });

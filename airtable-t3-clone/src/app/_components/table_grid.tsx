@@ -31,6 +31,19 @@ export function TableGrid({ baseId, tableId }: Props) {
     },
   );
 
+  const [addingCol, setAddingCol] = React.useState(false);
+  const [newColName, setNewColName] = React.useState("");
+  const [newColType, setNewColType] = React.useState<"TEXT" | "NUMBER">("TEXT");
+
+  const addColMut = api.table.addColumn.useMutation({
+    onSuccess: async () => {
+      setAddingCol(false);
+      setNewColName("");
+      setNewColType("TEXT");
+      await utils.table.getMeta.invalidate({ baseId, tableId });
+    },
+  });
+
 function EditableCell(props: {
   value: string | number | null | undefined;
   columnType: "TEXT" | "NUMBER";
@@ -98,7 +111,7 @@ function EditableCell(props: {
         await addRowsMut.mutateAsync({ baseId, tableId, count: n });
 
         remaining -= n;
-        setAddProgress(ADD_TOTAL - remaining);
+        setAddProgress((prev) => prev + n);
       }
 
       // refresh counts + paging state once at the end
@@ -257,9 +270,6 @@ function EditableCell(props: {
           Rows (DB): <span className="font-semibold">{totalRowCount}</span>{" "}
           <span className="mx-2 text-white/40">•</span>
           Loaded: <span className="font-semibold">{loadedRowCount}</span>{" "}
-          <span className="mx-2 text-white/40">•</span>
-          Last loaded rowIndex:{" "}
-          <span className="font-semibold">{lastLoadedRowIndex ?? "—"}</span>
           {addProgress > 0 && (
             <>
               <span className="mx-2 text-white/40">•</span>
@@ -268,16 +278,71 @@ function EditableCell(props: {
           )}
         </div>
 
-        <button
-          className="rounded-md bg-white/20 px-4 py-2 font-semibold hover:bg-white/30 disabled:opacity-50"
-          disabled={addRowsMut.isPending}
-          onClick={handleAdd100k}
-        >
-          {addRowsMut.isPending ? "Adding…" : "Add 100k rows"}
-        </button>
+        <div className="flex items-center gap-2">
+          {!addingCol ? (
+            <button
+              className="rounded-md bg-white/20 px-4 py-2 font-semibold hover:bg-white/30"
+              onClick={() => setAddingCol(true)}
+            >
+              + Column
+            </button>
+          ) : (
+            <div className="flex items-center gap-2">
+              <input
+                className="w-44 rounded-md bg-white/10 px-3 py-2 outline-none"
+                placeholder="Column name"
+                value={newColName}
+                onChange={(e) => setNewColName(e.target.value)}
+              />
+              <select
+                className="rounded-md bg-white/10 px-3 py-2 outline-none"
+                value={newColType}
+                onChange={(e) => setNewColType(e.target.value as "TEXT" | "NUMBER")}
+              >
+                <option value="TEXT">Text</option>
+                <option value="NUMBER">Number</option>
+              </select>
+
+              <button
+                className="rounded-md bg-white/20 px-4 py-2 font-semibold hover:bg-white/30 disabled:opacity-50"
+                disabled={addColMut.isPending}
+                onClick={() =>
+                  addColMut.mutate({
+                    baseId,
+                    tableId,
+                    name: newColName.trim() || "Field",
+                    type: newColType,
+                  })
+                }
+              >
+                {addColMut.isPending ? "Adding…" : "Add"}
+              </button>
+
+              <button
+                className="rounded-md px-3 py-2 text-white/70 hover:text-white"
+                onClick={() => {
+                  setAddingCol(false);
+                  setNewColName("");
+                  setNewColType("TEXT");
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          )}
+
+          <button
+            className="rounded-md bg-white/20 px-4 py-2 font-semibold hover:bg-white/30 disabled:opacity-50"
+            disabled={addRowsMut.isPending}
+            onClick={handleAdd100k}
+          >
+            {addRowsMut.isPending ? "Adding…" : "Add 100k rows"}
+          </button>
+        </div>
       </div>
 
       {addErr && <div className="mb-3 text-red-300">Add rows failed: {addErr}</div>}
+
 
       {/* header */}
       <div className="mb-2 flex gap-3 text-white/90">
