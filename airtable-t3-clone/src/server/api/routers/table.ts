@@ -308,7 +308,7 @@ export const tableRouter = createTRPCRouter({
 
     return { rowId: input.rowId, ...cell };
   }),
-  
+
   addColumn: protectedProcedure
     .input(
       z.object({
@@ -362,6 +362,92 @@ export const tableRouter = createTRPCRouter({
       });
 
       return col;
+    }),
+
+  deleteColumn: protectedProcedure
+    .input(
+      z.object({
+        baseId: z.string().min(1),
+        tableId: z.string().min(1),
+        columnId: z.string().min(1),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const col = await ctx.db.column.findFirst({
+        where: {
+          id: input.columnId,
+          tableId: input.tableId,
+          table: {
+            baseId: input.baseId,
+            base: { ownerId: ctx.session.user.id },
+          },
+        },
+        select: { id: true },
+      });
+
+      if (!col) throw new TRPCError({ code: "NOT_FOUND", message: "Column not found" });
+
+      await ctx.db.column.delete({ where: { id: col.id } });
+
+      return { ok: true };
+    }),
+
+  moveColumn: protectedProcedure
+    .input(
+      z.object({
+        baseId: z.string().min(1),
+        tableId: z.string().min(1),
+        columnId: z.string().min(1),
+        direction: z.enum(["left", "right"]),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      // ownership check (table must belong to user)
+      const ok = await ctx.db.table.findFirst({
+        where: {
+          id: input.tableId,
+          baseId: input.baseId,
+          base: { ownerId: ctx.session.user.id },
+        },
+        select: { id: true },
+      });
+      if (!ok) throw new Error("Table not found");
+
+      const cols = await ctx.db.column.findMany({
+        where: { tableId: input.tableId },
+        orderBy: { order: "asc" },
+        select: { id: true, order: true },
+      });
+
+      const idx = cols.findIndex((c) => c.id === input.columnId);
+      if (idx === -1) throw new Error("Column not found");
+
+      const nextIdx =
+        input.direction === "left" ? idx - 1 : idx + 1;
+
+      if (nextIdx < 0 || nextIdx >= cols.length) return { ok: true }; // no-op
+
+      // swap in memory
+      const reordered = [...cols];
+      [reordered[idx], reordered[nextIdx]] = [reordered[nextIdx]!, reordered[idx]!];
+
+      await ctx.db.$transaction(async (tx) => {
+        // shift all orders to avoid @@unique(tableId, order) collisions
+        await tx.column.updateMany({
+          where: { tableId: input.tableId },
+          data: { order: { increment: 1000 } },
+        });
+
+        // normalize to 0..n-1
+        for (let i = 0; i < reordered.length; i++) {
+          await tx.column.update({
+            where: { id: reordered[i]!.id },
+            data: { order: i },
+          });
+        }
+      });
+
+      return { ok: true };
     }),
 
   renameColumn: protectedProcedure

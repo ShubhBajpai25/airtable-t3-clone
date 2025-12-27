@@ -121,6 +121,20 @@ export function TableGrid({ baseId, tableId }: Props) {
   },
 });
 
+const deleteColMut = api.table.deleteColumn.useMutation({
+  onSuccess: async () => {
+    await utils.table.getMeta.invalidate({ baseId, tableId });
+    await utils.table.rowsInfinite.invalidate({ baseId, tableId, limit: PAGE_SIZE });
+  },
+});
+
+const moveColMut = api.table.moveColumn.useMutation({
+  onSuccess: async () => {
+    await utils.table.getMeta.invalidate({ baseId, tableId });
+  },
+});
+
+
 
 function EditableCell(props: {
   value: string | number | null | undefined;
@@ -423,18 +437,51 @@ function EditableCell(props: {
 
       {/* header */}
       <div className="mb-2 flex gap-3 text-white/90">
-        {meta.data!.columns.map((c) => (
-          <EditableHeader
-            key={c.id}
-            value={c.name}
-            isSaving={renameColMut.isPending}
-            onCommit={(next) =>
-              renameColMut.mutate({ baseId, tableId, columnId: c.id, name: next })
-            }
-          />
+        {meta.data!.columns.map((c, i) => (
+          <div key={c.id} className="min-w-[180px]">
+            <EditableHeader
+              value={c.name}
+              isSaving={renameColMut.isPending}
+              onCommit={(next) =>
+                renameColMut.mutate({ baseId, tableId, columnId: c.id, name: next })
+              }
+            />
+
+            <div className="mt-1 flex gap-2 text-xs text-white/70">
+              <button
+                type="button"
+                disabled={i === 0 || moveColMut.isPending}
+                onClick={() =>
+                  moveColMut.mutate({ baseId, tableId, columnId: c.id, direction: "left" })
+                }
+                className="hover:text-white disabled:opacity-40"
+              >
+                ←
+              </button>
+
+              <button
+                type="button"
+                disabled={i === meta.data!.columns.length - 1 || moveColMut.isPending}
+                onClick={() =>
+                  moveColMut.mutate({ baseId, tableId, columnId: c.id, direction: "right" })
+                }
+                className="hover:text-white disabled:opacity-40"
+              >
+                →
+              </button>
+
+              <button
+                type="button"
+                disabled={deleteColMut.isPending}
+                onClick={() => deleteColMut.mutate({ baseId, tableId, columnId: c.id })}
+                className="ml-auto hover:text-red-300 disabled:opacity-40"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
         ))}
       </div>
-
 
       {/* body */}
       <div
