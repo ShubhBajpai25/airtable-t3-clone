@@ -2,6 +2,7 @@ import { z } from "zod";
 import { faker } from "@faker-js/faker";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { ColumnType } from "~/server/db";
+import { TRPCError } from "@trpc/server";
 
 const DEFAULT_COLS = [
   { name: "Name", type: ColumnType.TEXT },
@@ -221,5 +222,90 @@ export const tableRouter = createTRPCRouter({
       startRowIndex: start,
       endRowIndex: start + total - 1,
     };
+  }),
+  setCellValue: protectedProcedure
+  .input(
+    z.object({
+      baseId: z.string().min(1),
+      tableId: z.string().min(1),
+      rowId: z.string().min(1),
+      columnId: z.string().min(1),
+      value: z.string(), // raw user input
+    }),
+  )
+  .mutation(async ({ ctx, input }) => {
+    // 1) ownership check (table belongs to user)
+    const table = await ctx.db.table.findFirst({
+      where: {
+        id: input.tableId,
+        baseId: input.baseId,
+        base: { ownerId: ctx.session.user.id },
+      },
+      select: { id: true },
+    });
+    if (!table) {
+      throw new TRPCError({ code: "NOT_FOUND", message: "Table not found" });
+    }
+
+    // 2) validate row + column belong to this table
+    const [row, col] = await Promise.all([
+      ctx.db.row.findFirst({
+        where: { id: input.rowId, tableId: input.tableId },
+        select: { id: true },
+      }),
+      ctx.db.column.findFirst({
+        where: { id: input.columnId, tableId: input.tableId },
+        select: { id: true, type: true },
+      }),
+    ]);
+
+    if (!row) {
+      throw new TRPCError({ code: "NOT_FOUND", message: "Row not found" });
+    }
+    if (!col) {
+      throw new TRPCError({ code: "NOT_FOUND", message: "Column not found" });
+    }
+
+    // 3) normalize value based on column type
+    const trimmed = input.value.trim();
+
+    const next =
+      col.type === ColumnType.TEXT
+        ? {
+            textValue: trimmed === "" ? null : trimmed,
+            numberValue: null,
+          }
+        : (() => {
+            if (trimmed === "") {
+              return { textValue: null, numberValue: null };
+            }
+            const n = Number(trimmed);
+            if (Number.isNaN(n)) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: "Invalid number",
+              });
+            }
+            return { textValue: null, numberValue: n };
+          })();
+
+    // 4) upsert (create if missing, update if exists)
+    const cell = await ctx.db.cell.upsert({
+      where: {
+        rowId_columnId: {
+          rowId: input.rowId,
+          columnId: input.columnId,
+        },
+      },
+      create: {
+        rowId: input.rowId,
+        columnId: input.columnId,
+        ...next,
+      },
+      update: next,
+      select: { columnId: true, textValue: true, numberValue: true },
+    });
+
+    return { rowId: input.rowId, ...cell };
   }),
 });

@@ -31,6 +31,57 @@ export function TableGrid({ baseId, tableId }: Props) {
     },
   );
 
+function EditableCell(props: {
+  value: string | number | null | undefined;
+  columnType: "TEXT" | "NUMBER";
+  onCommit: (next: string) => void;
+  isSaving: boolean;
+}) {
+  const display = String(props.value ?? "");
+  const [editing, setEditing] = React.useState(false);
+  const [draft, setDraft] = React.useState(display);
+
+  React.useEffect(() => {
+    if (!editing) setDraft(display);
+  }, [display, editing]);
+
+  const commit = () => {
+    setEditing(false);
+    if (draft !== display) props.onCommit(draft);
+  };
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        className="w-full text-left px-2 py-2 hover:bg-white/5"
+        onClick={() => setEditing(true)}
+      >
+        {display}
+      </button>
+    );
+  }
+
+  return (
+    <input
+      autoFocus
+      disabled={props.isSaving}
+      className="w-full bg-transparent px-2 py-2 outline-none"
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") commit();
+        if (e.key === "Escape") {
+          setEditing(false);
+          setDraft(display);
+        }
+      }}
+      inputMode={props.columnType === "NUMBER" ? "decimal" : "text"}
+    />
+  );
+}
+
   const addRowsMut = api.table.addRows.useMutation();
 
   const handleAdd100k = async () => {
@@ -60,6 +111,74 @@ export function TableGrid({ baseId, tableId }: Props) {
       setAddErr(e instanceof Error ? e.message : String(e));
     }
   };
+
+  const setCellMut = api.table.setCellValue.useMutation({
+    onMutate: async (vars) => {
+      await utils.table.rowsInfinite.cancel({ baseId, tableId, limit: PAGE_SIZE });
+
+      const prev = utils.table.rowsInfinite.getInfiniteData({
+        baseId,
+        tableId,
+        limit: PAGE_SIZE,
+      });
+
+      // Find column type from meta (for optimistic shape)
+      const colType =
+        meta.data?.columns.find((c) => c.id === vars.columnId)?.type ?? "TEXT";
+
+      const trimmed = vars.value.trim();
+      const optimistic =
+        colType === "TEXT"
+          ? { textValue: trimmed === "" ? null : trimmed, numberValue: null }
+          : (() => {
+              if (trimmed === "") return { textValue: null, numberValue: null };
+              const n = Number(trimmed);
+              return Number.isNaN(n)
+                ? { textValue: null, numberValue: null }
+                : { textValue: null, numberValue: n };
+            })();
+
+      utils.table.rowsInfinite.setInfiniteData(
+        { baseId, tableId, limit: PAGE_SIZE },
+        (old) => {
+          if (!old) return old;
+          return {
+            ...old,
+            pages: old.pages.map((p) => ({
+              ...p,
+              rows: p.rows.map((r) => {
+                if (r.id !== vars.rowId) return r;
+
+                const existing = r.cells.find((c) => c.columnId === vars.columnId);
+                const nextCells = existing
+                  ? r.cells.map((c) =>
+                      c.columnId === vars.columnId ? { ...c, ...optimistic } : c,
+                    )
+                  : [...r.cells, { columnId: vars.columnId, ...optimistic }];
+
+                return { ...r, cells: nextCells };
+              }),
+            })),
+          };
+        },
+      );
+
+      return { prev };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.prev) {
+        utils.table.rowsInfinite.setInfiniteData(
+          { baseId, tableId, limit: PAGE_SIZE },
+          ctx.prev,
+        );
+      }
+    },
+    onSettled: async () => {
+      // keep it safe/consistent
+      await utils.table.rowsInfinite.invalidate({ baseId, tableId, limit: PAGE_SIZE });
+    },
+  });
+
 
   const flatRows = React.useMemo(
     () => rowsQ.data?.pages.flatMap((p) => p.rows) ?? [],
@@ -197,8 +316,21 @@ export function TableGrid({ baseId, tableId }: Props) {
                 className="flex border-b border-white/5"
               >
                 {meta.data!.columns.map((c) => (
-                  <div key={c.id} className="min-w-[180px] px-2 py-2">
-                    {String(row.original.cellMap[c.id] ?? "")}
+                  <div key={c.id} className="min-w-[180px] border-r border-white/5">
+                    <EditableCell
+                      value={row.original.cellMap[c.id]}
+                      columnType={c.type}
+                      isSaving={setCellMut.isPending}
+                      onCommit={(next) =>
+                        setCellMut.mutate({
+                          baseId,
+                          tableId,
+                          rowId: row.original.id,
+                          columnId: c.id,
+                          value: next,
+                        })
+                      }
+                    />
                   </div>
                 ))}
               </div>
