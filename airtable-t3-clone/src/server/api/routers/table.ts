@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { faker } from "@faker-js/faker";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
-import { ColumnType } from "~/server/db";
+import { ColumnType, Prisma } from "~/server/db";
 import { TRPCError } from "@trpc/server";
 
 const DEFAULT_COLS = [
@@ -308,6 +308,7 @@ export const tableRouter = createTRPCRouter({
 
     return { rowId: input.rowId, ...cell };
   }),
+  
   addColumn: protectedProcedure
     .input(
       z.object({
@@ -362,4 +363,52 @@ export const tableRouter = createTRPCRouter({
 
       return col;
     }),
+
+  renameColumn: protectedProcedure
+  .input(
+    z.object({
+      baseId: z.string().min(1),
+      tableId: z.string().min(1),
+      columnId: z.string().min(1),
+      name: z.string().min(1).max(80),
+    }),
+  )
+  .mutation(async ({ ctx, input }) => {
+    const nextName = input.name.trim();
+    if (!nextName) throw new TRPCError({ code: "BAD_REQUEST", message: "Name required" });
+
+    // ownership check + ensure the column belongs to this table/base
+    const col = await ctx.db.column.findFirst({
+      where: {
+        id: input.columnId,
+        tableId: input.tableId,
+        table: {
+          baseId: input.baseId,
+          base: { ownerId: ctx.session.user.id },
+        },
+      },
+      select: { id: true },
+    });
+
+    if (!col) throw new TRPCError({ code: "NOT_FOUND", message: "Column not found" });
+
+    try {
+      const updated = await ctx.db.column.update({
+        where: { id: col.id },
+        data: { name: nextName },
+        select: { id: true, name: true },
+      });
+
+      return updated;
+    } catch (e) {
+      // unique constraint (tableId,name)
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "A column with that name already exists",
+        });
+      }
+      throw e;
+    }
+  }),
 });

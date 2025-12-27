@@ -11,6 +11,57 @@ import { api } from "~/trpc/react";
 
 type Props = { baseId: string; tableId: string };
 
+export function EditableHeader(props: {
+  value: string;
+  isSaving: boolean;
+  onCommit: (next: string) => void;
+}) {
+  const [editing, setEditing] = React.useState(false);
+  const [draft, setDraft] = React.useState(props.value);
+
+  React.useEffect(() => {
+    if (!editing) setDraft(props.value);
+  }, [props.value, editing]);
+
+  const commit = () => {
+    const next = draft.trim();
+    setEditing(false);
+    if (next && next !== props.value) props.onCommit(next);
+  };
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        className="min-w-[180px] px-2 py-2 text-left font-semibold hover:bg-white/5"
+        onDoubleClick={() => setEditing(true)}
+        title="Double click to rename"
+      >
+        {props.value}
+      </button>
+    );
+  }
+
+  return (
+    <input
+      autoFocus
+      disabled={props.isSaving}
+      className="min-w-[180px] bg-white/10 px-2 py-2 outline-none"
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") commit();
+        if (e.key === "Escape") {
+          setEditing(false);
+          setDraft(props.value);
+        }
+      }}
+    />
+  );
+}
+
+
 export function TableGrid({ baseId, tableId }: Props) {
   const PAGE_SIZE = 100;
   const ADD_TOTAL = 100_000;
@@ -43,6 +94,33 @@ export function TableGrid({ baseId, tableId }: Props) {
       await utils.table.getMeta.invalidate({ baseId, tableId });
     },
   });
+
+  const renameColMut = api.table.renameColumn.useMutation({
+  onMutate: async (vars) => {
+    await utils.table.getMeta.cancel({ baseId, tableId });
+
+    const prev = utils.table.getMeta.getData({ baseId, tableId });
+
+    utils.table.getMeta.setData({ baseId, tableId }, (old) => {
+      if (!old) return old;
+      return {
+        ...old,
+        columns: old.columns.map((c) =>
+          c.id === vars.columnId ? { ...c, name: vars.name } : c,
+        ),
+      };
+    });
+
+    return { prev };
+  },
+  onError: (_err, _vars, ctx) => {
+    if (ctx?.prev) utils.table.getMeta.setData({ baseId, tableId }, ctx.prev);
+  },
+  onSettled: async () => {
+    await utils.table.getMeta.invalidate({ baseId, tableId });
+  },
+});
+
 
 function EditableCell(props: {
   value: string | number | null | undefined;
@@ -343,15 +421,20 @@ function EditableCell(props: {
 
       {addErr && <div className="mb-3 text-red-300">Add rows failed: {addErr}</div>}
 
-
       {/* header */}
       <div className="mb-2 flex gap-3 text-white/90">
         {meta.data!.columns.map((c) => (
-          <div key={c.id} className="min-w-[180px] font-semibold">
-            {c.name}
-          </div>
+          <EditableHeader
+            key={c.id}
+            value={c.name}
+            isSaving={renameColMut.isPending}
+            onCommit={(next) =>
+              renameColMut.mutate({ baseId, tableId, columnId: c.id, name: next })
+            }
+          />
         ))}
       </div>
+
 
       {/* body */}
       <div
