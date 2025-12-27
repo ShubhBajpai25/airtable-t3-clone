@@ -199,12 +199,11 @@ export function TableGrid({ baseId, tableId }: Props) {
       if (!selectedColumnId) return;
 
       const t = e.target as HTMLElement | null;
-      const typing =
-        t &&
-        (t.tagName === "INPUT" ||
-          t.tagName === "TEXTAREA" ||
-          (t as HTMLElement).isContentEditable);
 
+      const typing =
+        !!t &&
+        (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
+        
       if (typing) return;
 
       if (e.key === "Backspace" || e.key === "Delete") {
