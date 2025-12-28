@@ -123,43 +123,62 @@ function SortableHeader({
 
 type CellSel = { rowIdx: number; colId: string } | null;
 
+function isPrintableKey(e: React.KeyboardEvent) {
+  if (e.ctrlKey || e.metaKey || e.altKey) return false;
+  // printable chars are typically length 1 (letters, numbers, punctuation, space)
+  return e.key.length === 1;
+}
+
+type NavDir = "left" | "right" | "up" | "down" | "tab" | "shiftTab";
+
+function navKey(e: React.KeyboardEvent): NavDir | null {
+  if (e.key === "ArrowLeft") return "left";
+  if (e.key === "ArrowRight") return "right";
+  if (e.key === "ArrowUp") return "up";
+  if (e.key === "ArrowDown") return "down";
+  if (e.key === "Tab") return e.shiftKey ? "shiftTab" : "tab";
+  return null;
+}
+
 function EditableCell(props: {
   rowIdx: number;
   colId: string;
   selected: boolean;
+
   value: string | number | null | undefined;
   columnType: "TEXT" | "NUMBER";
+
   isSaving: boolean;
+
   onSelect: () => void;
   onCommit: (next: string) => void;
-  onNavigate: (dir: "left" | "right" | "up" | "down" | "tab" | "shiftTab") => void;
+  onNavigate: (dir: NavDir) => void;
 }) {
   const display = String(props.value ?? "");
   const [editing, setEditing] = React.useState(false);
   const [draft, setDraft] = React.useState(display);
 
+  // keep draft in sync when not editing
   React.useEffect(() => {
     if (!editing) setDraft(display);
   }, [display, editing]);
 
+  // if selection moves away, exit edit mode (don’t auto-commit here; blur/keys handle it)
   React.useEffect(() => {
     if (!props.selected && editing) setEditing(false);
   }, [props.selected, editing]);
 
-  const commit = () => {
+  const commit = React.useCallback(() => {
     setEditing(false);
     if (draft !== display) props.onCommit(draft);
-  };
+  }, [draft, display, props]);
 
-  const navKey = (e: React.KeyboardEvent) => {
-    if (e.key === "ArrowLeft") return "left";
-    if (e.key === "ArrowRight") return "right";
-    if (e.key === "ArrowUp") return "up";
-    if (e.key === "ArrowDown") return "down";
-    if (e.key === "Tab") return e.shiftKey ? "shiftTab" : "tab";
-    return null;
-  };
+  const cancel = React.useCallback(() => {
+    setEditing(false);
+    setDraft(display);
+  }, [display]);
 
+  // --- NOT EDITING: behaves like “selected cell”
   if (!editing) {
     return (
       <button
@@ -179,9 +198,25 @@ function EditableCell(props: {
             props.onNavigate(nk);
             return;
           }
+
           if (e.key === "Enter") {
             e.preventDefault();
             setEditing(true);
+            return;
+          }
+
+          if (e.key === "Backspace" || e.key === "Delete") {
+            e.preventDefault();
+            setEditing(true);
+            setDraft(""); // spreadsheet-like clear
+            return;
+          }
+
+          // ✅ Start typing = edit immediately
+          if (isPrintableKey(e)) {
+            e.preventDefault();
+            setEditing(true);
+            setDraft(e.key); // typical spreadsheet: replace contents with typed key
           }
         }}
       >
@@ -190,6 +225,7 @@ function EditableCell(props: {
     );
   }
 
+  // --- EDITING: input captures value, Esc cancels, Enter saves, arrows/tab save+move
   return (
     <input
       autoFocus
@@ -197,7 +233,10 @@ function EditableCell(props: {
       className="w-full bg-transparent px-2 py-2 outline-none ring-2 ring-white/40"
       value={draft}
       onChange={(e) => setDraft(e.target.value)}
-      onBlur={commit}
+      onBlur={() => {
+        // blur = save (unless user hit Escape which already reverted)
+        commit();
+      }}
       onKeyDown={(e) => {
         const nk = navKey(e);
         if (nk) {
@@ -209,13 +248,14 @@ function EditableCell(props: {
 
         if (e.key === "Enter") {
           e.preventDefault();
-          commit();
+          commit(); // save, stay in cell
+          return;
         }
 
         if (e.key === "Escape") {
           e.preventDefault();
-          setEditing(false);
-          setDraft(display);
+          cancel();
+          return;
         }
       }}
       inputMode={props.columnType === "NUMBER" ? "decimal" : "text"}
