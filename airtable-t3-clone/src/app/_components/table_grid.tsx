@@ -125,7 +125,6 @@ type CellSel = { rowIdx: number; colId: string } | null;
 
 function isPrintableKey(e: React.KeyboardEvent) {
   if (e.ctrlKey || e.metaKey || e.altKey) return false;
-  // printable chars are typically length 1 (letters, numbers, punctuation, space)
   return e.key.length === 1;
 }
 
@@ -158,12 +157,10 @@ function EditableCell(props: {
   const [editing, setEditing] = React.useState(false);
   const [draft, setDraft] = React.useState(display);
 
-  // keep draft in sync when not editing
   React.useEffect(() => {
     if (!editing) setDraft(display);
   }, [display, editing]);
 
-  // if selection moves away, exit edit mode (don’t auto-commit here; blur/keys handle it)
   React.useEffect(() => {
     if (!props.selected && editing) setEditing(false);
   }, [props.selected, editing]);
@@ -178,7 +175,6 @@ function EditableCell(props: {
     setDraft(display);
   }, [display]);
 
-  // --- NOT EDITING: behaves like “selected cell”
   if (!editing) {
     return (
       <button
@@ -208,15 +204,14 @@ function EditableCell(props: {
           if (e.key === "Backspace" || e.key === "Delete") {
             e.preventDefault();
             setEditing(true);
-            setDraft(""); // spreadsheet-like clear
+            setDraft("");
             return;
           }
 
-          // ✅ Start typing = edit immediately
           if (isPrintableKey(e)) {
             e.preventDefault();
             setEditing(true);
-            setDraft(e.key); // typical spreadsheet: replace contents with typed key
+            setDraft(e.key);
           }
         }}
       >
@@ -225,7 +220,6 @@ function EditableCell(props: {
     );
   }
 
-  // --- EDITING: input captures value, Esc cancels, Enter saves, arrows/tab save+move
   return (
     <input
       autoFocus
@@ -233,10 +227,7 @@ function EditableCell(props: {
       className="w-full bg-transparent px-2 py-2 outline-none ring-2 ring-white/40"
       value={draft}
       onChange={(e) => setDraft(e.target.value)}
-      onBlur={() => {
-        // blur = save (unless user hit Escape which already reverted)
-        commit();
-      }}
+      onBlur={() => commit()}
       onKeyDown={(e) => {
         const nk = navKey(e);
         if (nk) {
@@ -248,7 +239,7 @@ function EditableCell(props: {
 
         if (e.key === "Enter") {
           e.preventDefault();
-          commit(); // save, stay in cell
+          commit();
           return;
         }
 
@@ -266,11 +257,16 @@ function EditableCell(props: {
 export function TableGrid({ baseId, tableId }: Props) {
   const PAGE_SIZE = 100;
 
-  // chunked add 100k rows (kept)
   const ADD_TOTAL = 100_000;
   const CHUNK_SIZE = 5_000;
 
   const utils = api.useUtils();
+
+  // query handling
+  const [draftQuery, setDraftQuery] = React.useState("");
+  const [activeQuery, setActiveQuery] = React.useState<string | undefined>(undefined);
+  const isTypingSearch = draftQuery !== (activeQuery ?? "");
+  const showTypingBlank = draftQuery.trim().length > 0 && isTypingSearch;
 
   const [addProgress, setAddProgress] = React.useState(0);
   const [addErr, setAddErr] = React.useState<string | null>(null);
@@ -278,14 +274,19 @@ export function TableGrid({ baseId, tableId }: Props) {
   const meta = api.table.getMeta.useQuery({ baseId, tableId });
 
   const rowsQ = api.table.rowsInfinite.useInfiniteQuery(
-    { baseId, tableId, limit: PAGE_SIZE },
+    {
+      baseId,
+      tableId,
+      limit: PAGE_SIZE,
+      q: activeQuery?.trim() ? activeQuery.trim() : undefined,
+    },
     {
       getNextPageParam: (last) => last.nextCursor ?? undefined,
       enabled: meta.isSuccess,
     },
   );
 
-  // Column add UI (kept)
+  // Column add UI
   const [addingCol, setAddingCol] = React.useState(false);
   const [newColName, setNewColName] = React.useState("");
   const [newColType, setNewColType] = React.useState<"TEXT" | "NUMBER">("TEXT");
@@ -325,9 +326,7 @@ export function TableGrid({ baseId, tableId }: Props) {
   });
 
   // Column select + delete
-  const [selectedColumnId, setSelectedColumnId] = React.useState<string | null>(
-    null,
-  );
+  const [selectedColumnId, setSelectedColumnId] = React.useState<string | null>(null);
 
   const deleteColMut = api.table.deleteColumn.useMutation({
     onSuccess: async () => {
@@ -337,7 +336,7 @@ export function TableGrid({ baseId, tableId }: Props) {
     },
   });
 
-  // ✅ rows -> data
+  // rows -> data
   const flatRows = React.useMemo(
     () => rowsQ.data?.pages.flatMap((p) => p.rows) ?? [],
     [rowsQ.data],
@@ -353,40 +352,52 @@ export function TableGrid({ baseId, tableId }: Props) {
     });
   }, [flatRows]);
 
+  const displayData = showTypingBlank ? [] : data;
+
   const cols = meta.data?.columns ?? [];
   const colIds = cols.map((c) => c.id);
   const totalRowCount = meta.data?.rowCount ?? 0;
 
-  // ✅ selected cell navigation
+  // selected cell navigation
   const [selectedCell, setSelectedCell] = React.useState<CellSel>(null);
   const pendingSelRef = React.useRef<CellSel>(null);
 
   const parentRef = React.useRef<HTMLDivElement>(null);
 
   const rowVirtualizer = useVirtualizer({
-    count: data.length,
+    count: displayData.length,
     getScrollElement: () => parentRef.current,
     estimateSize: () => 34,
     overscan: 20,
   });
 
-  const selectCell = React.useCallback(
-    (rowIdx: number, colId: string) => {
-      setSelectedColumnId(null);
-      setSelectedCell({ rowIdx, colId });
-    },
-    [],
-  );
+  const runSearch = () => {
+    const next = draftQuery.trim();
+    setActiveQuery(next ? next : undefined);
+
+    // reset selection because dataset may change
+    setSelectedCell(null);
+    pendingSelRef.current = null;
+
+    parentRef.current?.scrollTo({ top: 0 });
+  };
+
+  const selectCell = React.useCallback((rowIdx: number, colId: string) => {
+    setSelectedColumnId(null);
+    setSelectedCell({ rowIdx, colId });
+  }, []);
 
   // default select
   React.useEffect(() => {
-    if (!selectedCell && data.length > 0 && cols.length > 0) {
+    if (showTypingBlank) return;
+    if (!selectedCell && displayData.length > 0 && cols.length > 0) {
       setSelectedCell({ rowIdx: 0, colId: cols[0]!.id });
     }
-  }, [selectedCell, data.length, cols]);
+  }, [showTypingBlank, selectedCell, displayData.length, cols]);
 
-  // focus + keep cell visible (row + horizontal)
+  // focus + keep cell visible
   React.useEffect(() => {
+    if (showTypingBlank) return;
     if (!selectedCell) return;
 
     rowVirtualizer.scrollToIndex(selectedCell.rowIdx, { align: "auto" });
@@ -401,8 +412,7 @@ export function TableGrid({ baseId, tableId }: Props) {
 
       if (cellLeft < viewLeft) parentRef.current.scrollLeft = cellLeft;
       else if (cellRight > viewRight) {
-        parentRef.current.scrollLeft =
-          cellRight - parentRef.current.clientWidth;
+        parentRef.current.scrollLeft = cellRight - parentRef.current.clientWidth;
       }
     }
 
@@ -412,23 +422,26 @@ export function TableGrid({ baseId, tableId }: Props) {
       );
       el?.focus();
     });
-  }, [selectedCell, cols, rowVirtualizer]);
+  }, [showTypingBlank, selectedCell, cols, rowVirtualizer]);
 
   React.useEffect(() => {
+    if (showTypingBlank) return;
     const p = pendingSelRef.current;
     if (!p) return;
-    if (p.rowIdx < data.length) {
+    if (p.rowIdx < displayData.length) {
       setSelectedCell(p);
       pendingSelRef.current = null;
     }
-  }, [data.length]);
+  }, [showTypingBlank, displayData.length]);
 
   const navigateTo = React.useCallback(
     (nextRowIdx: number, nextColId: string) => {
+      if (showTypingBlank) return;
+
       const maxRowIdx = Math.max(0, (totalRowCount || 1) - 1);
       const rowIdx = Math.min(Math.max(0, nextRowIdx), maxRowIdx);
 
-      if (rowIdx >= data.length && rowsQ.hasNextPage && !rowsQ.isFetchingNextPage) {
+      if (rowIdx >= displayData.length && rowsQ.hasNextPage && !rowsQ.isFetchingNextPage) {
         pendingSelRef.current = { rowIdx, colId: nextColId };
         void rowsQ.fetchNextPage();
         return;
@@ -436,15 +449,23 @@ export function TableGrid({ baseId, tableId }: Props) {
 
       setSelectedColumnId(null);
       setSelectedCell({
-        rowIdx: Math.min(rowIdx, Math.max(0, data.length - 1)),
+        rowIdx: Math.min(rowIdx, Math.max(0, displayData.length - 1)),
         colId: nextColId,
       });
     },
-    [data.length, rowsQ.hasNextPage, rowsQ.isFetchingNextPage, rowsQ.fetchNextPage, totalRowCount],
+    [
+      showTypingBlank,
+      displayData.length,
+      rowsQ.hasNextPage,
+      rowsQ.isFetchingNextPage,
+      rowsQ.fetchNextPage,
+      totalRowCount,
+    ],
   );
 
   const navigateFrom = React.useCallback(
-    (dir: "left" | "right" | "up" | "down" | "tab" | "shiftTab") => {
+    (dir: NavDir) => {
+      if (showTypingBlank) return;
       if (!selectedCell || cols.length === 0) return;
 
       const colIdx = cols.findIndex((c) => c.id === selectedCell.colId);
@@ -477,10 +498,10 @@ export function TableGrid({ baseId, tableId }: Props) {
       c = Math.min(Math.max(0, c), lastColIdx);
       navigateTo(r, cols[c]!.id);
     },
-    [selectedCell, cols, navigateTo],
+    [showTypingBlank, selectedCell, cols, navigateTo],
   );
 
-  // ✅ delete column key listener — do NOT fire while a cell is selected (arrow nav + edits)
+  // delete column key listener
   React.useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (!selectedColumnId) return;
@@ -488,9 +509,7 @@ export function TableGrid({ baseId, tableId }: Props) {
 
       const t = e.target instanceof HTMLElement ? e.target : null;
       const typing =
-        !!t &&
-        (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
-
+        !!t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
       if (typing) return;
 
       if (e.key === "Backspace" || e.key === "Delete") {
@@ -512,9 +531,7 @@ export function TableGrid({ baseId, tableId }: Props) {
     },
   });
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-  );
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
   const onDragEnd = (evt: DragEndEvent) => {
     const activeId = String(evt.active.id);
@@ -577,8 +594,7 @@ export function TableGrid({ baseId, tableId }: Props) {
         limit: PAGE_SIZE,
       });
 
-      const colType =
-        meta.data?.columns.find((c) => c.id === vars.columnId)?.type ?? "TEXT";
+      const colType = meta.data?.columns.find((c) => c.id === vars.columnId)?.type ?? "TEXT";
 
       const trimmed = vars.value.trim();
       const optimistic =
@@ -587,44 +603,34 @@ export function TableGrid({ baseId, tableId }: Props) {
           : (() => {
               if (trimmed === "") return { textValue: null, numberValue: null };
               const n = Number(trimmed);
-              return Number.isNaN(n)
-                ? { textValue: null, numberValue: null }
-                : { textValue: null, numberValue: n };
+              return Number.isNaN(n) ? { textValue: null, numberValue: null } : { textValue: null, numberValue: n };
             })();
 
-      utils.table.rowsInfinite.setInfiniteData(
-        { baseId, tableId, limit: PAGE_SIZE },
-        (old) => {
-          if (!old) return old;
-          return {
-            ...old,
-            pages: old.pages.map((p) => ({
-              ...p,
-              rows: p.rows.map((r) => {
-                if (r.id !== vars.rowId) return r;
+      utils.table.rowsInfinite.setInfiniteData({ baseId, tableId, limit: PAGE_SIZE }, (old) => {
+        if (!old) return old;
+        return {
+          ...old,
+          pages: old.pages.map((p) => ({
+            ...p,
+            rows: p.rows.map((r) => {
+              if (r.id !== vars.rowId) return r;
 
-                const existing = r.cells.find((c) => c.columnId === vars.columnId);
-                const nextCells = existing
-                  ? r.cells.map((c) =>
-                      c.columnId === vars.columnId ? { ...c, ...optimistic } : c,
-                    )
-                  : [...r.cells, { columnId: vars.columnId, ...optimistic }];
+              const existing = r.cells.find((c) => c.columnId === vars.columnId);
+              const nextCells = existing
+                ? r.cells.map((c) => (c.columnId === vars.columnId ? { ...c, ...optimistic } : c))
+                : [...r.cells, { columnId: vars.columnId, ...optimistic }];
 
-                return { ...r, cells: nextCells };
-              }),
-            })),
-          };
-        },
-      );
+              return { ...r, cells: nextCells };
+            }),
+          })),
+        };
+      });
 
       return { prev };
     },
     onError: (_err, _vars, ctx) => {
       if (ctx?.prev) {
-        utils.table.rowsInfinite.setInfiniteData(
-          { baseId, tableId, limit: PAGE_SIZE },
-          ctx.prev,
-        );
+        utils.table.rowsInfinite.setInfiniteData({ baseId, tableId, limit: PAGE_SIZE }, ctx.prev);
       }
     },
     onSettled: async () => {
@@ -633,21 +639,20 @@ export function TableGrid({ baseId, tableId }: Props) {
   });
 
   // Infinite scroll trigger
-  const loadedRowCount = data.length;
+  const loadedRowCount = displayData.length;
   const vItems = rowVirtualizer.getVirtualItems();
   const lastVirtualIndex = vItems.at(-1)?.index ?? -1;
 
   React.useEffect(() => {
+    if (showTypingBlank) return;
+
     if (lastVirtualIndex < 0) return;
 
-    if (
-      lastVirtualIndex >= loadedRowCount - 10 &&
-      rowsQ.hasNextPage &&
-      !rowsQ.isFetchingNextPage
-    ) {
+    if (lastVirtualIndex >= loadedRowCount - 10 && rowsQ.hasNextPage && !rowsQ.isFetchingNextPage) {
       void rowsQ.fetchNextPage();
     }
   }, [
+    showTypingBlank,
     lastVirtualIndex,
     loadedRowCount,
     rowsQ.hasNextPage,
@@ -745,12 +750,55 @@ export function TableGrid({ baseId, tableId }: Props) {
           >
             Delete column
           </button>
+
+          <div className="flex items-center gap-2">
+            <input
+              className="w-64 rounded-md bg-white/10 px-3 py-2 outline-none"
+              placeholder="Search all cells…"
+              value={draftQuery}
+              onChange={(e) => setDraftQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  runSearch();
+                }
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  setDraftQuery("");
+                  setActiveQuery(undefined);
+                  setSelectedCell(null);
+                  pendingSelRef.current = null;
+                  parentRef.current?.scrollTo({ top: 0 });
+                }
+              }}
+            />
+
+            {draftQuery.trim() && isTypingSearch && (
+              <span className="text-sm text-white/60">Press Enter to see results…</span>
+            )}
+
+            {activeQuery && (
+              <button
+                type="button"
+                className="rounded-md px-3 py-2 text-white/70 hover:text-white"
+                onClick={() => {
+                  setDraftQuery("");
+                  setActiveQuery(undefined);
+                  setSelectedCell(null);
+                  pendingSelRef.current = null;
+                  parentRef.current?.scrollTo({ top: 0 });
+                }}
+              >
+                Clear
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
       {addErr && <div className="mb-3 text-red-300">Add rows failed: {addErr}</div>}
 
-      {/* ✅ header: click to select, drag handle to reorder, dbl click to rename */}
+      {/* header */}
       <DndContext sensors={sensors} onDragEnd={onDragEnd}>
         <SortableContext items={colIds} strategy={horizontalListSortingStrategy}>
           <div className="mb-2 flex gap-3 text-white/90">
@@ -778,10 +826,20 @@ export function TableGrid({ baseId, tableId }: Props) {
       </DndContext>
 
       {/* body */}
-      <div
-        ref={parentRef}
-        className="h-[70vh] overflow-auto rounded-md border border-white/10"
-      >
+      <div ref={parentRef} className="h-[70vh] overflow-auto rounded-md border border-white/10">
+        {showTypingBlank && (
+          <div className="p-6 text-center text-white/60">
+            Press Enter to see results for{" "}
+            <span className="text-white">“{draftQuery.trim()}”</span>
+          </div>
+        )}
+
+        {!showTypingBlank && activeQuery && !rowsQ.isFetching && displayData.length === 0 && (
+          <div className="p-6 text-center text-white/60">
+            No results for <span className="text-white">“{activeQuery}”</span>
+          </div>
+        )}
+
         <div
           style={{
             height: `${rowVirtualizer.getTotalSize()}px`,
@@ -789,7 +847,7 @@ export function TableGrid({ baseId, tableId }: Props) {
           }}
         >
           {rowVirtualizer.getVirtualItems().map((vRow) => {
-            const row = data[vRow.index];
+            const row = displayData[vRow.index];
             if (!row) return null;
 
             return (
@@ -809,10 +867,7 @@ export function TableGrid({ baseId, tableId }: Props) {
                     <EditableCell
                       rowIdx={vRow.index}
                       colId={c.id}
-                      selected={
-                        selectedCell?.rowIdx === vRow.index &&
-                        selectedCell?.colId === c.id
-                      }
+                      selected={selectedCell?.rowIdx === vRow.index && selectedCell?.colId === c.id}
                       value={row.cellMap[c.id]}
                       columnType={c.type}
                       isSaving={setCellMut.isPending}
@@ -835,7 +890,7 @@ export function TableGrid({ baseId, tableId }: Props) {
           })}
         </div>
 
-        {rowsQ.isFetchingNextPage && (
+        {rowsQ.isFetchingNextPage && !showTypingBlank && (
           <div className="p-3 text-white/60">Loading more…</div>
         )}
       </div>
