@@ -4,7 +4,6 @@ import * as React from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { api } from "~/trpc/react";
 
-// ✅ Drag/drop
 import {
   DndContext,
   PointerSensor,
@@ -105,7 +104,6 @@ function SortableHeader({
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0 flex-1">{children}</div>
 
-        {/* drag handle */}
         <button
           type="button"
           className="cursor-grab px-2 py-2 text-white/60 hover:text-white"
@@ -143,12 +141,9 @@ function EditableCell(props: {
   rowIdx: number;
   colId: string;
   selected: boolean;
-
   value: string | number | null | undefined;
   columnType: "TEXT" | "NUMBER";
-
   isSaving: boolean;
-
   onSelect: () => void;
   onCommit: (next: string) => void;
   onNavigate: (dir: NavDir) => void;
@@ -256,13 +251,11 @@ function EditableCell(props: {
 
 export function TableGrid({ baseId, tableId }: Props) {
   const PAGE_SIZE = 100;
-
   const ADD_TOTAL = 100_000;
   const CHUNK_SIZE = 5_000;
 
   const utils = api.useUtils();
 
-  // query handling
   const [draftQuery, setDraftQuery] = React.useState("");
   const [activeQuery, setActiveQuery] = React.useState<string | undefined>(undefined);
   const isTypingSearch = draftQuery !== (activeQuery ?? "");
@@ -273,20 +266,34 @@ export function TableGrid({ baseId, tableId }: Props) {
 
   const meta = api.table.getMeta.useQuery({ baseId, tableId });
 
-  const rowsQ = api.table.rowsInfinite.useInfiniteQuery(
-    {
+  const rowsInput = React.useMemo(
+    () => ({
       baseId,
       tableId,
       limit: PAGE_SIZE,
       q: activeQuery?.trim() ? activeQuery.trim() : undefined,
-    },
-    {
-      getNextPageParam: (last) => last.nextCursor ?? undefined,
-      enabled: meta.isSuccess,
-    },
+    }),
+    [baseId, tableId, activeQuery],
   );
 
-  // Column add UI
+  const rowsQ = api.table.rowsInfinite.useInfiniteQuery(rowsInput, {
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+    enabled: meta.isSuccess,
+  });
+
+  // ✅ destructure to avoid eslint "missing rowsQ" deps warnings
+  const {
+    data: rowsData,
+    hasNextPage,
+    isFetching,
+    isFetchingNextPage,
+    fetchNextPage,
+  } = rowsQ;
+
+  const cols = React.useMemo(() => meta.data?.columns ?? [], [meta.data?.columns]);
+  const colIds = React.useMemo(() => cols.map((c) => c.id), [cols]);
+  const totalRowCount = meta.data?.rowCount ?? 0;
+
   const [addingCol, setAddingCol] = React.useState(false);
   const [newColName, setNewColName] = React.useState("");
   const [newColType, setNewColType] = React.useState<"TEXT" | "NUMBER">("TEXT");
@@ -325,21 +332,19 @@ export function TableGrid({ baseId, tableId }: Props) {
     },
   });
 
-  // Column select + delete
   const [selectedColumnId, setSelectedColumnId] = React.useState<string | null>(null);
 
   const deleteColMut = api.table.deleteColumn.useMutation({
     onSuccess: async () => {
       setSelectedColumnId(null);
       await utils.table.getMeta.invalidate({ baseId, tableId });
-      await utils.table.rowsInfinite.invalidate({ baseId, tableId, limit: PAGE_SIZE });
+      await utils.table.rowsInfinite.invalidate(); // invalidate all variants (q/no-q)
     },
   });
 
-  // rows -> data
   const flatRows = React.useMemo(
-    () => rowsQ.data?.pages.flatMap((p) => p.rows) ?? [],
-    [rowsQ.data],
+    () => rowsData?.pages.flatMap((p) => p.rows) ?? [],
+    [rowsData],
   );
 
   const data = React.useMemo(() => {
@@ -354,14 +359,8 @@ export function TableGrid({ baseId, tableId }: Props) {
 
   const displayData = showTypingBlank ? [] : data;
 
-  const cols = meta.data?.columns ?? [];
-  const colIds = cols.map((c) => c.id);
-  const totalRowCount = meta.data?.rowCount ?? 0;
-
-  // selected cell navigation
   const [selectedCell, setSelectedCell] = React.useState<CellSel>(null);
   const pendingSelRef = React.useRef<CellSel>(null);
-
   const parentRef = React.useRef<HTMLDivElement>(null);
 
   const rowVirtualizer = useVirtualizer({
@@ -375,7 +374,6 @@ export function TableGrid({ baseId, tableId }: Props) {
     const next = draftQuery.trim();
     setActiveQuery(next ? next : undefined);
 
-    // reset selection because dataset may change
     setSelectedCell(null);
     pendingSelRef.current = null;
 
@@ -387,7 +385,6 @@ export function TableGrid({ baseId, tableId }: Props) {
     setSelectedCell({ rowIdx, colId });
   }, []);
 
-  // default select
   React.useEffect(() => {
     if (showTypingBlank) return;
     if (!selectedCell && displayData.length > 0 && cols.length > 0) {
@@ -395,7 +392,6 @@ export function TableGrid({ baseId, tableId }: Props) {
     }
   }, [showTypingBlank, selectedCell, displayData.length, cols]);
 
-  // focus + keep cell visible
   React.useEffect(() => {
     if (showTypingBlank) return;
     if (!selectedCell) return;
@@ -441,9 +437,9 @@ export function TableGrid({ baseId, tableId }: Props) {
       const maxRowIdx = Math.max(0, (totalRowCount || 1) - 1);
       const rowIdx = Math.min(Math.max(0, nextRowIdx), maxRowIdx);
 
-      if (rowIdx >= displayData.length && rowsQ.hasNextPage && !rowsQ.isFetchingNextPage) {
+      if (rowIdx >= displayData.length && hasNextPage && !isFetchingNextPage) {
         pendingSelRef.current = { rowIdx, colId: nextColId };
-        void rowsQ.fetchNextPage();
+        void fetchNextPage();
         return;
       }
 
@@ -455,11 +451,11 @@ export function TableGrid({ baseId, tableId }: Props) {
     },
     [
       showTypingBlank,
-      displayData.length,
-      rowsQ.hasNextPage,
-      rowsQ.isFetchingNextPage,
-      rowsQ.fetchNextPage,
       totalRowCount,
+      displayData.length,
+      hasNextPage,
+      isFetchingNextPage,
+      fetchNextPage,
     ],
   );
 
@@ -501,7 +497,6 @@ export function TableGrid({ baseId, tableId }: Props) {
     [showTypingBlank, selectedCell, cols, navigateTo],
   );
 
-  // delete column key listener
   React.useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (!selectedColumnId) return;
@@ -524,14 +519,15 @@ export function TableGrid({ baseId, tableId }: Props) {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [selectedColumnId, selectedCell, deleteColMut, baseId, tableId]);
 
-  // Drag/drop reorder
   const reorderMut = api.table.reorderColumns.useMutation({
     onSuccess: async () => {
       await utils.table.getMeta.invalidate({ baseId, tableId });
     },
   });
 
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+  );
 
   const onDragEnd = (evt: DragEndEvent) => {
     const activeId = String(evt.active.id);
@@ -559,7 +555,6 @@ export function TableGrid({ baseId, tableId }: Props) {
     });
   };
 
-  // Add rows (chunked)
   const addRowsMut = api.table.addRows.useMutation();
 
   const handleAdd100k = async () => {
@@ -577,7 +572,7 @@ export function TableGrid({ baseId, tableId }: Props) {
       }
 
       await utils.table.getMeta.invalidate({ baseId, tableId });
-      await utils.table.rowsInfinite.invalidate({ baseId, tableId, limit: PAGE_SIZE });
+      await utils.table.rowsInfinite.invalidate();
       void meta.refetch();
     } catch (e) {
       setAddErr(e instanceof Error ? e.message : String(e));
@@ -586,27 +581,25 @@ export function TableGrid({ baseId, tableId }: Props) {
 
   const setCellMut = api.table.setCellValue.useMutation({
     onMutate: async (vars) => {
-      await utils.table.rowsInfinite.cancel({ baseId, tableId, limit: PAGE_SIZE });
+      await utils.table.rowsInfinite.cancel();
 
-      const prev = utils.table.rowsInfinite.getInfiniteData({
-        baseId,
-        tableId,
-        limit: PAGE_SIZE,
-      });
+      const prev = utils.table.rowsInfinite.getInfiniteData(rowsInput);
 
-      const colType = meta.data?.columns.find((c) => c.id === vars.columnId)?.type ?? "TEXT";
-
+      const colType = cols.find((c) => c.id === vars.columnId)?.type ?? "TEXT";
       const trimmed = vars.value.trim();
+
       const optimistic =
         colType === "TEXT"
           ? { textValue: trimmed === "" ? null : trimmed, numberValue: null }
           : (() => {
               if (trimmed === "") return { textValue: null, numberValue: null };
               const n = Number(trimmed);
-              return Number.isNaN(n) ? { textValue: null, numberValue: null } : { textValue: null, numberValue: n };
+              return Number.isNaN(n)
+                ? { textValue: null, numberValue: null }
+                : { textValue: null, numberValue: n };
             })();
 
-      utils.table.rowsInfinite.setInfiniteData({ baseId, tableId, limit: PAGE_SIZE }, (old) => {
+      utils.table.rowsInfinite.setInfiniteData(rowsInput, (old) => {
         if (!old) return old;
         return {
           ...old,
@@ -617,7 +610,9 @@ export function TableGrid({ baseId, tableId }: Props) {
 
               const existing = r.cells.find((c) => c.columnId === vars.columnId);
               const nextCells = existing
-                ? r.cells.map((c) => (c.columnId === vars.columnId ? { ...c, ...optimistic } : c))
+                ? r.cells.map((c) =>
+                    c.columnId === vars.columnId ? { ...c, ...optimistic } : c,
+                  )
                 : [...r.cells, { columnId: vars.columnId, ...optimistic }];
 
               return { ...r, cells: nextCells };
@@ -629,35 +624,31 @@ export function TableGrid({ baseId, tableId }: Props) {
       return { prev };
     },
     onError: (_err, _vars, ctx) => {
-      if (ctx?.prev) {
-        utils.table.rowsInfinite.setInfiniteData({ baseId, tableId, limit: PAGE_SIZE }, ctx.prev);
-      }
+      if (ctx?.prev) utils.table.rowsInfinite.setInfiniteData(rowsInput, ctx.prev);
     },
     onSettled: async () => {
-      await utils.table.rowsInfinite.invalidate({ baseId, tableId, limit: PAGE_SIZE });
+      await utils.table.rowsInfinite.invalidate();
     },
   });
 
-  // Infinite scroll trigger
   const loadedRowCount = displayData.length;
   const vItems = rowVirtualizer.getVirtualItems();
   const lastVirtualIndex = vItems.at(-1)?.index ?? -1;
 
   React.useEffect(() => {
     if (showTypingBlank) return;
-
     if (lastVirtualIndex < 0) return;
 
-    if (lastVirtualIndex >= loadedRowCount - 10 && rowsQ.hasNextPage && !rowsQ.isFetchingNextPage) {
-      void rowsQ.fetchNextPage();
+    if (lastVirtualIndex >= loadedRowCount - 10 && hasNextPage && !isFetchingNextPage) {
+      void fetchNextPage();
     }
   }, [
     showTypingBlank,
     lastVirtualIndex,
     loadedRowCount,
-    rowsQ.hasNextPage,
-    rowsQ.isFetchingNextPage,
-    rowsQ.fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
   ]);
 
   if (meta.isLoading) return <p>Loading table…</p>;
@@ -665,7 +656,6 @@ export function TableGrid({ baseId, tableId }: Props) {
 
   return (
     <div className="rounded-xl bg-white/5 p-3">
-      {/* actions + checks */}
       <div className="mb-3 flex items-center justify-between gap-4">
         <div className="text-white/80">
           Rows (DB): <span className="font-semibold">{totalRowCount}</span>{" "}
@@ -798,7 +788,6 @@ export function TableGrid({ baseId, tableId }: Props) {
 
       {addErr && <div className="mb-3 text-red-300">Add rows failed: {addErr}</div>}
 
-      {/* header */}
       <DndContext sensors={sensors} onDragEnd={onDragEnd}>
         <SortableContext items={colIds} strategy={horizontalListSortingStrategy}>
           <div className="mb-2 flex gap-3 text-white/90">
@@ -825,7 +814,6 @@ export function TableGrid({ baseId, tableId }: Props) {
         </SortableContext>
       </DndContext>
 
-      {/* body */}
       <div ref={parentRef} className="h-[70vh] overflow-auto rounded-md border border-white/10">
         {showTypingBlank && (
           <div className="p-6 text-center text-white/60">
@@ -834,7 +822,7 @@ export function TableGrid({ baseId, tableId }: Props) {
           </div>
         )}
 
-        {!showTypingBlank && activeQuery && !rowsQ.isFetching && displayData.length === 0 && (
+        {!showTypingBlank && activeQuery && !isFetching && displayData.length === 0 && (
           <div className="p-6 text-center text-white/60">
             No results for <span className="text-white">“{activeQuery}”</span>
           </div>
@@ -890,7 +878,7 @@ export function TableGrid({ baseId, tableId }: Props) {
           })}
         </div>
 
-        {rowsQ.isFetchingNextPage && !showTypingBlank && (
+        {isFetchingNextPage && !showTypingBlank && (
           <div className="p-3 text-white/60">Loading more…</div>
         )}
       </div>

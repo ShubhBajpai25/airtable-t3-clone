@@ -10,18 +10,20 @@ const DEFAULT_COLS = [
   { name: "Amount", type: ColumnType.NUMBER },
 ] as const;
 
-/** DRY helpers */
-function tableOwnedWhere(ctx: any, baseId: string, tableId: string) {
+// ✅ type-safe DB type without importing runtime db
+type DB = typeof import("~/server/db").db;
+
+function tableOwnedWhere(baseId: string, tableId: string, ownerId: string) {
   return {
     id: tableId,
     baseId,
-    base: { ownerId: ctx.session.user.id },
+    base: { ownerId },
   } as const;
 }
 
-async function requireBaseOwned(ctx: any, baseId: string) {
-  const base = await ctx.db.base.findFirst({
-    where: { id: baseId, ownerId: ctx.session.user.id },
+async function requireBaseOwned(db: DB, baseId: string, ownerId: string) {
+  const base = await db.base.findFirst({
+    where: { id: baseId, ownerId },
     select: { id: true },
   });
 
@@ -29,9 +31,9 @@ async function requireBaseOwned(ctx: any, baseId: string) {
   return base;
 }
 
-async function requireTableOwned(ctx: any, baseId: string, tableId: string) {
-  const table = await ctx.db.table.findFirst({
-    where: tableOwnedWhere(ctx, baseId, tableId),
+async function requireTableOwned(db: DB, baseId: string, tableId: string, ownerId: string) {
+  const table = await db.table.findFirst({
+    where: tableOwnedWhere(baseId, tableId, ownerId),
     select: { id: true },
   });
 
@@ -43,7 +45,8 @@ export const tableRouter = createTRPCRouter({
   list: protectedProcedure
     .input(z.object({ baseId: z.string().min(1) }))
     .query(async ({ ctx, input }) => {
-      await requireBaseOwned(ctx, input.baseId);
+      const ownerId = ctx.session.user.id;
+      await requireBaseOwned(ctx.db, input.baseId, ownerId);
 
       return ctx.db.table.findMany({
         where: { baseId: input.baseId },
@@ -55,10 +58,11 @@ export const tableRouter = createTRPCRouter({
   getMeta: protectedProcedure
     .input(z.object({ baseId: z.string().min(1), tableId: z.string().min(1) }))
     .query(async ({ ctx, input }) => {
-      await requireTableOwned(ctx, input.baseId, input.tableId);
+      const ownerId = ctx.session.user.id;
+      await requireTableOwned(ctx.db, input.baseId, input.tableId, ownerId);
 
       const table = await ctx.db.table.findFirst({
-        where: tableOwnedWhere(ctx, input.baseId, input.tableId),
+        where: tableOwnedWhere(input.baseId, input.tableId, ownerId),
         select: {
           id: true,
           name: true,
@@ -93,7 +97,8 @@ export const tableRouter = createTRPCRouter({
       }),
     )
     .query(async ({ ctx, input }) => {
-      await requireTableOwned(ctx, input.baseId, input.tableId);
+      const ownerId = ctx.session.user.id;
+      await requireTableOwned(ctx.db, input.baseId, input.tableId, ownerId);
 
       const start = input.cursor ?? 0;
       const q = input.q?.trim();
@@ -166,7 +171,8 @@ export const tableRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      await requireBaseOwned(ctx, input.baseId);
+      const ownerId = ctx.session.user.id;
+      await requireBaseOwned(ctx.db, input.baseId, ownerId);
 
       const result = await ctx.db.$transaction(async (tx) => {
         const table = await tx.table.create({
@@ -236,7 +242,8 @@ export const tableRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      await requireTableOwned(ctx, input.baseId, input.tableId);
+      const ownerId = ctx.session.user.id;
+      await requireTableOwned(ctx.db, input.baseId, input.tableId, ownerId);
 
       const agg = await ctx.db.row.aggregate({
         where: { tableId: input.tableId },
@@ -279,7 +286,8 @@ export const tableRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      await requireTableOwned(ctx, input.baseId, input.tableId);
+      const ownerId = ctx.session.user.id;
+      await requireTableOwned(ctx.db, input.baseId, input.tableId, ownerId);
 
       const [row, col] = await Promise.all([
         ctx.db.row.findFirst({
@@ -334,7 +342,8 @@ export const tableRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      await requireTableOwned(ctx, input.baseId, input.tableId);
+      const ownerId = ctx.session.user.id;
+      await requireTableOwned(ctx.db, input.baseId, input.tableId, ownerId);
 
       const max = await ctx.db.column.aggregate({
         where: { tableId: input.tableId },
@@ -377,7 +386,6 @@ export const tableRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      // validate column belongs + ownership in one query
       const col = await ctx.db.column.findFirst({
         where: {
           id: input.columnId,
@@ -393,7 +401,6 @@ export const tableRouter = createTRPCRouter({
       if (!col) throw new TRPCError({ code: "NOT_FOUND", message: "Column not found" });
 
       await ctx.db.column.delete({ where: { id: col.id } });
-
       return { ok: true };
     }),
 
@@ -407,7 +414,8 @@ export const tableRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      await requireTableOwned(ctx, input.baseId, input.tableId);
+      const ownerId = ctx.session.user.id;
+      await requireTableOwned(ctx.db, input.baseId, input.tableId, ownerId);
 
       const cols = await ctx.db.column.findMany({
         where: { tableId: input.tableId },
@@ -431,10 +439,7 @@ export const tableRouter = createTRPCRouter({
         });
 
         for (let i = 0; i < reordered.length; i++) {
-          await tx.column.update({
-            where: { id: reordered[i]!.id },
-            data: { order: i },
-          });
+          await tx.column.update({ where: { id: reordered[i]!.id }, data: { order: i } });
         }
       });
 
@@ -450,7 +455,8 @@ export const tableRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      await requireTableOwned(ctx, input.baseId, input.tableId);
+      const ownerId = ctx.session.user.id;
+      await requireTableOwned(ctx.db, input.baseId, input.tableId, ownerId);
 
       const existing = await ctx.db.column.findMany({
         where: { tableId: input.tableId },
