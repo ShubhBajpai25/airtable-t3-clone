@@ -21,6 +21,10 @@ enum ColumnType {
   NUMBER
 }
 
+enum ViewType {
+  GRID
+}
+
 model Base {
   id        String   @id @default(cuid())
   name      String
@@ -35,6 +39,22 @@ model Base {
   @@index([ownerId])
 }
 
+model View {
+  id        String   @id @default(cuid())
+  tableId   String
+  table     Table    @relation(fields: [tableId], references: [id], onDelete: Cascade)
+
+  name      String
+  type      ViewType @default(GRID)
+  config    Json
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tableId])
+  @@unique([tableId, name])
+}
+
 model Table {
   id        String   @id @default(cuid())
   name      String
@@ -46,6 +66,8 @@ model Table {
 
   columns Column[]
   rows    Row[]
+
+  views View[]
 
   @@unique([baseId, name])
   @@index([baseId])
