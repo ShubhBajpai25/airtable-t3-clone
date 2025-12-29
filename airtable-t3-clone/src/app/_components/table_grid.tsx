@@ -387,10 +387,10 @@ export function TableGrid({ baseId, tableId }: Props) {
 
   React.useEffect(() => {
     if (showTypingBlank) return;
-    if (!selectedCell && displayData.length > 0 && cols.length > 0) {
+    if (!selectedCell && !selectedColumnId && displayData.length > 0 && cols.length > 0) {
       setSelectedCell({ rowIdx: 0, colId: cols[0]!.id });
     }
-  }, [showTypingBlank, selectedCell, displayData.length, cols]);
+  }, [showTypingBlank, selectedCell, selectedColumnId, displayData.length, cols]);
 
   React.useEffect(() => {
     if (showTypingBlank) return;
