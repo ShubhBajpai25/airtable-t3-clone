@@ -3,7 +3,7 @@
 import * as React from "react";
 import { api } from "~/trpc/react";
 
-type Col = { id: string; name: string; type: "TEXT" | "NUMBER"; order: number };
+type Col = { id: string; name: string; type: "TEXT" | "NUMBER" };
 
 type TextOp = "is_empty" | "is_not_empty" | "contains" | "not_contains" | "equals";
 type NumOp = "is_empty" | "is_not_empty" | "gt" | "lt" | "equals";
@@ -34,9 +34,10 @@ export type ViewConfig = {
   sort?: ViewSort;
   q?: string;
   hiddenColumnIds: string[];
-  // passthrough allows extra keys
-  [k: string]: unknown;
+  [k: string]: unknown; // passthrough
 };
+
+const EMPTY_HIDDEN: string[] = [];
 
 function defaultConfig(config?: Partial<ViewConfig>): ViewConfig {
   return {
@@ -48,8 +49,7 @@ function defaultConfig(config?: Partial<ViewConfig>): ViewConfig {
 }
 
 function needsValue(filter: ViewFilter) {
-  if (filter.op === "is_empty" || filter.op === "is_not_empty") return false;
-  return true;
+  return !(filter.op === "is_empty" || filter.op === "is_not_empty");
 }
 
 function firstFilterForColumn(col: Col): ViewFilter {
@@ -63,11 +63,9 @@ export function ViewControls(props: {
   baseId: string;
   tableId: string;
 
-  // controlled selection from TableGrid
   viewId?: string;
   onSelectView: (next?: string) => void;
 
-  // data passed from TableGrid
   views: Array<{ id: string; name: string }>;
   viewsLoading: boolean;
 
@@ -76,29 +74,22 @@ export function ViewControls(props: {
 
   columns: Col[];
 
-  // TableGrid can pass a callback to clear selection/scroll etc
   onChangedView?: () => void;
-
-  // optional: invalidate rowsInfinite after config changes
   onConfigSaved?: () => void;
 }) {
   const utils = api.useUtils();
 
   const [showPanel, setShowPanel] = React.useState(false);
 
-  // create UI
   const [creating, setCreating] = React.useState(false);
   const [newName, setNewName] = React.useState("");
 
-  // rename UI
   const [renaming, setRenaming] = React.useState(false);
   const [renameDraft, setRenameDraft] = React.useState("");
 
-  // local draft config (apply button)
   const [draft, setDraft] = React.useState<ViewConfig>(() => defaultConfig(props.currentConfig));
 
   React.useEffect(() => {
-    // when switching views / config loads, reset draft
     setDraft(defaultConfig(props.currentConfig));
     setRenaming(false);
     setCreating(false);
@@ -111,11 +102,16 @@ export function ViewControls(props: {
   const deleteMut = api.view.delete.useMutation();
   const updateConfigMut = api.view.updateConfig.useMutation();
 
-  const canDelete = (props.views?.length ?? 0) > 1;
+  const canDelete = props.views.length > 1;
 
-  const allFilterableCols = React.useMemo(
+  const filterableCols = React.useMemo(
     () => props.columns.filter((c) => c.type === "TEXT" || c.type === "NUMBER"),
     [props.columns],
+  );
+
+  const selectedView = React.useMemo(
+    () => props.views.find((v) => v.id === props.viewId),
+    [props.views, props.viewId],
   );
 
   const applyConfig = async () => {
@@ -124,21 +120,22 @@ export function ViewControls(props: {
     await updateConfigMut.mutateAsync({
       baseId: props.baseId,
       tableId: props.tableId,
-      viewId: props.viewId,
+      viewId: props.viewId!, // ✅ prefer non-null assertion
       patch: draft,
     });
 
     await utils.view.get.invalidate({
       baseId: props.baseId,
       tableId: props.tableId,
-      viewId: props.viewId,
+      viewId: props.viewId!,
     });
 
     props.onConfigSaved?.();
   };
 
   const handleCreate = async () => {
-    const name = newName.trim() || "New view";
+    const trimmed = newName.trim();
+    const name = trimmed.length > 0 ? trimmed : "New view"; // ✅ no `||`
 
     const created = await createMut.mutateAsync({
       baseId: props.baseId,
@@ -148,7 +145,7 @@ export function ViewControls(props: {
 
     await utils.view.list.invalidate({ baseId: props.baseId, tableId: props.tableId });
 
-    // optionally copy current config into the new view (so views feel meaningful immediately)
+    // copy config into the new view (nice UX)
     if (props.currentConfig) {
       await updateConfigMut.mutateAsync({
         baseId: props.baseId,
@@ -160,6 +157,7 @@ export function ViewControls(props: {
 
     props.onSelectView(created.id);
     props.onChangedView?.();
+
     setCreating(false);
     setNewName("");
     setShowPanel(true);
@@ -168,12 +166,12 @@ export function ViewControls(props: {
   const handleRename = async () => {
     if (!props.viewId) return;
     const next = renameDraft.trim();
-    if (!next) return;
+    if (next.length === 0) return;
 
     await renameMut.mutateAsync({
       baseId: props.baseId,
       tableId: props.tableId,
-      viewId: props.viewId,
+      viewId: props.viewId!,
       name: next,
     });
 
@@ -193,21 +191,20 @@ export function ViewControls(props: {
     await deleteMut.mutateAsync({
       baseId: props.baseId,
       tableId: props.tableId,
-      viewId: toDelete,
+      viewId: props.viewId!,
     });
 
     await utils.view.list.invalidate({ baseId: props.baseId, tableId: props.tableId });
 
-    // choose next view locally
     const fallback = props.views.find((v) => v.id !== toDelete)?.id;
     props.onSelectView(fallback);
     props.onChangedView?.();
   };
 
-  // ------- Draft config helpers -------
+  // ---- draft config helpers ----
   const toggleHidden = (colId: string) => {
     setDraft((prev) => {
-      const s = new Set(prev.hiddenColumnIds);
+      const s = new Set(prev.hiddenColumnIds ?? EMPTY_HIDDEN);
       if (s.has(colId)) s.delete(colId);
       else s.add(colId);
       return { ...prev, hiddenColumnIds: Array.from(s) };
@@ -215,13 +212,13 @@ export function ViewControls(props: {
   };
 
   const setSort = (columnId: string, direction: "asc" | "desc") => {
-    setDraft((prev) => ({ ...prev, sort: columnId ? { columnId, direction } : undefined }));
+    setDraft((prev) => ({ ...prev, sort: { columnId, direction } }));
   };
 
   const clearSort = () => setDraft((prev) => ({ ...prev, sort: undefined }));
 
   const addFilter = () => {
-    const first = allFilterableCols[0];
+    const first = filterableCols[0];
     if (!first) return;
     setDraft((prev) => ({ ...prev, filters: [...prev.filters, firstFilterForColumn(first)] }));
   };
@@ -241,18 +238,20 @@ export function ViewControls(props: {
     });
   };
 
-  const updateFilterOp = (idx: number, op: string) => {
+  const updateFilterOp = (idx: number, rawOp: string) => {
     setDraft((prev) => {
       const next = [...prev.filters];
       const f = next[idx];
       if (!f) return prev;
 
       if (f.kind === "text") {
-        const nf: TextFilter = { ...f, op: op as TextOp };
+        const op = rawOp as TextOp; // needed due to DOM string
+        const nf: TextFilter = { ...f, op };
         if (!needsValue(nf)) delete nf.value;
         next[idx] = nf;
       } else {
-        const nf: NumberFilter = { ...f, op: op as NumOp };
+        const op = rawOp as NumOp; // needed due to DOM string
+        const nf: NumberFilter = { ...f, op };
         if (!needsValue(nf)) delete nf.value;
         next[idx] = nf;
       }
@@ -268,24 +267,21 @@ export function ViewControls(props: {
       if (!f) return prev;
 
       if (f.kind === "text") {
-        const nf: TextFilter = { ...f, value: raw };
-        next[idx] = nf;
+        next[idx] = { ...f, value: raw };
       } else {
         const trimmed = raw.trim();
-        const num = trimmed === "" ? undefined : Number(trimmed);
-        const nf: NumberFilter = { ...f, value: Number.isFinite(num as number) ? (num as number) : undefined };
-        next[idx] = nf;
+        const n = trimmed.length === 0 ? undefined : Number(trimmed);
+        const value = typeof n === "number" && Number.isFinite(n) ? n : undefined;
+        next[idx] = { ...f, value };
       }
 
       return { ...prev, filters: next };
     });
   };
 
-  // ------- UI -------
-  const selectedView = props.views.find((v) => v.id === props.viewId);
-
+  // ---- UI ----
   return (
-    <div className="flex items-center gap-2">
+    <div className="relative flex items-center gap-2">
       <select
         className="rounded-md bg-white/10 px-3 py-2 outline-none"
         value={props.viewId ?? ""}
@@ -293,9 +289,9 @@ export function ViewControls(props: {
           props.onSelectView(e.target.value || undefined);
           props.onChangedView?.();
         }}
-        disabled={props.viewsLoading || !props.views?.length}
+        disabled={props.viewsLoading || props.views.length === 0}
       >
-        {(props.views ?? []).map((v) => (
+        {props.views.map((v) => (
           <option key={v.id} value={v.id}>
             {v.name}
           </option>
@@ -370,7 +366,7 @@ export function ViewControls(props: {
       </button>
 
       {showPanel && props.viewId && (
-        <div className="absolute left-0 right-0 top-[64px] z-10 mx-3 rounded-xl border border-white/10 bg-[#0b0b0f] p-4 text-white shadow-xl">
+        <div className="absolute left-0 right-0 top-[56px] z-10 rounded-xl border border-white/10 bg-[#0b0b0f] p-4 text-white shadow-xl">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
               <div className="text-sm text-white/60">View</div>
@@ -441,12 +437,12 @@ export function ViewControls(props: {
                   value={draft.sort?.columnId ?? ""}
                   onChange={(e) => {
                     const colId = e.target.value;
-                    if (!colId) clearSort();
+                    if (colId.length === 0) clearSort();
                     else setSort(colId, draft.sort?.direction ?? "asc");
                   }}
                 >
                   <option value="">(No sort)</option>
-                  {allFilterableCols.map((c) => (
+                  {filterableCols.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.name} ({c.type})
                     </option>
@@ -458,7 +454,7 @@ export function ViewControls(props: {
                   value={draft.sort?.direction ?? "asc"}
                   onChange={(e) => {
                     const dir = e.target.value as "asc" | "desc";
-                    const colId = draft.sort?.columnId ?? "";
+                    const colId = draft.sort?.columnId;
                     if (colId) setSort(colId, dir);
                   }}
                   disabled={!draft.sort?.columnId}
@@ -466,10 +462,6 @@ export function ViewControls(props: {
                   <option value="asc">Asc</option>
                   <option value="desc">Desc</option>
                 </select>
-              </div>
-
-              <div className="mt-2 text-sm text-white/60">
-                Sorting changes which rows you see first and activates the keyset cursor path.
               </div>
             </div>
 
@@ -482,21 +474,13 @@ export function ViewControls(props: {
                   const checked = draft.hiddenColumnIds.includes(c.id);
                   return (
                     <label key={c.id} className="flex items-center gap-2 py-1 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => toggleHidden(c.id)}
-                      />
+                      <input type="checkbox" checked={checked} onChange={() => toggleHidden(c.id)} />
                       <span className="truncate">
                         {c.name} <span className="text-white/50">({c.type})</span>
                       </span>
                     </label>
                   );
                 })}
-              </div>
-
-              <div className="mt-2 text-sm text-white/60">
-                Hidden columns won’t render in the grid for this view.
               </div>
             </div>
 
@@ -508,7 +492,7 @@ export function ViewControls(props: {
                   type="button"
                   className="rounded-md bg-white/10 px-3 py-2 hover:bg-white/15 disabled:opacity-50"
                   onClick={addFilter}
-                  disabled={allFilterableCols.length === 0}
+                  disabled={filterableCols.length === 0}
                 >
                   + Filter
                 </button>
@@ -519,27 +503,26 @@ export function ViewControls(props: {
               ) : (
                 <div className="space-y-2">
                   {draft.filters.map((f, idx) => {
-                    const col = props.columns.find((c) => c.id === f.columnId);
-                    const kind = f.kind;
-
-                    const ops: Array<{ value: string; label: string }> =
-                      kind === "text"
-                        ? [
+                    const ops =
+                      f.kind === "text"
+                        ? ([
                             { value: "is_empty", label: "is empty" },
                             { value: "is_not_empty", label: "is not empty" },
                             { value: "contains", label: "contains" },
                             { value: "not_contains", label: "not contains" },
                             { value: "equals", label: "equals" },
-                          ]
-                        : [
+                          ] as const)
+                        : ([
                             { value: "is_empty", label: "is empty" },
                             { value: "is_not_empty", label: "is not empty" },
                             { value: "gt", label: ">" },
                             { value: "lt", label: "<" },
                             { value: "equals", label: "=" },
-                          ];
+                          ] as const);
 
                     const showValue = needsValue(f);
+                    const valueStr =
+                      f.kind === "number" ? String(f.value ?? "") : (f.value ?? "");
 
                     return (
                       <div
@@ -551,7 +534,7 @@ export function ViewControls(props: {
                           value={f.columnId}
                           onChange={(e) => updateFilterColumn(idx, e.target.value)}
                         >
-                          {allFilterableCols.map((c) => (
+                          {filterableCols.map((c) => (
                             <option key={c.id} value={c.id}>
                               {c.name} ({c.type})
                             </option>
@@ -573,14 +556,10 @@ export function ViewControls(props: {
                         {showValue && (
                           <input
                             className="min-w-[220px] flex-1 rounded-md bg-white/10 px-3 py-2 outline-none"
-                            placeholder={kind === "number" ? "Number…" : "Text…"}
-                            value={
-                              kind === "number"
-                                ? String((f as NumberFilter).value ?? "")
-                                : String((f as TextFilter).value ?? "")
-                            }
+                            placeholder={f.kind === "number" ? "Number…" : "Text…"}
+                            value={valueStr}
                             onChange={(e) => updateFilterValue(idx, e.target.value)}
-                            inputMode={kind === "number" ? "decimal" : "text"}
+                            inputMode={f.kind === "number" ? "decimal" : "text"}
                           />
                         )}
 
@@ -591,10 +570,6 @@ export function ViewControls(props: {
                         >
                           Remove
                         </button>
-
-                        <div className="text-xs text-white/50">
-                          {col ? `Column type: ${col.type}` : "Column missing"}
-                        </div>
                       </div>
                     );
                   })}
@@ -603,7 +578,6 @@ export function ViewControls(props: {
             </div>
           </div>
 
-          {/* footer */}
           <div className="mt-4 flex items-center justify-between gap-3">
             <div className="text-sm text-white/60">
               {props.configLoading ? "Loading view…" : "Edits are applied when you click Apply."}

@@ -5,6 +5,8 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { api } from "~/trpc/react";
 import { ViewControls, type ViewConfig } from "./view_controls";
 
+const EMPTY_STR_ARR: string[] = [];
+
 import {
   DndContext,
   PointerSensor,
@@ -161,10 +163,12 @@ function EditableCell(props: {
     if (!props.selected && editing) setEditing(false);
   }, [props.selected, editing]);
 
+  const { onCommit } = props;
+
   const commit = React.useCallback(() => {
     setEditing(false);
-    if (draft !== display) props.onCommit(draft);
-  }, [draft, display, props.onCommit]);
+    if (draft !== display) onCommit(draft);
+  }, [draft, display, onCommit]);
 
   const cancel = React.useCallback(() => {
     setEditing(false);
@@ -358,7 +362,7 @@ export function TableGrid({ baseId, tableId }: Props) {
 
   const allCols = React.useMemo(() => meta.data?.columns ?? [], [meta.data?.columns]);
 
-  const hiddenColumnIds = (viewGetQ.data?.config as ViewConfig | undefined)?.hiddenColumnIds ?? [];
+  const hiddenColumnIds = (viewGetQ.data?.config as ViewConfig | undefined)?.hiddenColumnIds ?? EMPTY_STR_ARR;
   const hiddenSet = React.useMemo(() => new Set(hiddenColumnIds), [hiddenColumnIds]);
 
   // visible columns for this view
@@ -580,7 +584,11 @@ export function TableGrid({ baseId, tableId }: Props) {
 
     // …but preserve hidden columns in their original positions in the full ordering
     const visIter = nextVisible[Symbol.iterator]();
-    const finalCols = allCols.map((c) => (hiddenSet.has(c.id) ? c : (visIter.next().value as typeof c)));
+
+    const finalCols = allCols.map((c) => {
+      if (hiddenSet.has(c.id)) return c;
+      return visIter.next().value!; // ✅ this is what eslint wants
+    });
 
     utils.table.getMeta.setData({ baseId, tableId }, (old) => {
       if (!old) return old;
