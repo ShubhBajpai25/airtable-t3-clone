@@ -279,7 +279,7 @@ export function TableGrid({ baseId, tableId }: Props) {
     () => ({
       baseId,
       tableId,
-      viewId,
+      ...(viewId ? { viewId } : {}),
       limit: PAGE_SIZE,
       q: activeQuery?.trim() ? activeQuery.trim() : undefined,
     }),
@@ -288,8 +288,12 @@ export function TableGrid({ baseId, tableId }: Props) {
 
   const rowsQ = api.table.rowsInfinite.useInfiniteQuery(rowsKey, {
   getNextPageParam: (last) => last.nextCursor ?? undefined,
-  enabled: meta.isSuccess && !!viewId,
+  enabled: meta.isSuccess,
   });
+
+  if (rowsQ.isLoading) return <p>Loading rows…</p>;
+  if (rowsQ.error) return <p className="text-red-300">{rowsQ.error.message}</p>;
+
 
   // ✅ destructure to avoid eslint "missing rowsQ" deps warnings
   const {
