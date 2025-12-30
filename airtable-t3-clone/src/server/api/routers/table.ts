@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { faker } from "@faker-js/faker";
-import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
-import { ColumnType, Prisma } from "~/server/db";
 import { TRPCError } from "@trpc/server";
+import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
+import { db, ColumnType, Prisma } from "~/server/db";
 
 const DEFAULT_COLS = [
   { name: "Name", type: ColumnType.TEXT },
@@ -10,43 +10,216 @@ const DEFAULT_COLS = [
   { name: "Amount", type: ColumnType.NUMBER },
 ] as const;
 
-// ✅ type-safe DB type without importing runtime db
-type DB = typeof import("~/server/db").db;
+type AuthedCtx = {
+  db: typeof db;
+  session: { user: { id: string } };
+};
 
-function tableOwnedWhere(baseId: string, tableId: string, ownerId: string) {
+function tableOwnedWhere(ctx: AuthedCtx, baseId: string, tableId: string) {
   return {
     id: tableId,
     baseId,
-    base: { ownerId },
+    base: { ownerId: ctx.session.user.id },
   } as const;
 }
 
-async function requireBaseOwned(db: DB, baseId: string, ownerId: string) {
-  const base = await db.base.findFirst({
-    where: { id: baseId, ownerId },
+async function requireBaseOwned(ctx: AuthedCtx, baseId: string) {
+  const base = await ctx.db.base.findFirst({
+    where: { id: baseId, ownerId: ctx.session.user.id },
     select: { id: true },
   });
-
   if (!base) throw new TRPCError({ code: "NOT_FOUND", message: "Base not found" });
   return base;
 }
 
-async function requireTableOwned(db: DB, baseId: string, tableId: string, ownerId: string) {
-  const table = await db.table.findFirst({
-    where: tableOwnedWhere(baseId, tableId, ownerId),
+async function requireTableOwned(ctx: AuthedCtx, baseId: string, tableId: string) {
+  const table = await ctx.db.table.findFirst({
+    where: tableOwnedWhere(ctx, baseId, tableId),
     select: { id: true },
   });
-
   if (!table) throw new TRPCError({ code: "NOT_FOUND", message: "Table not found" });
   return table;
+}
+
+// --------------------
+// ViewConfig (stored in View.config as JSON)
+// --------------------
+const textFilterSchema = z.object({
+  kind: z.literal("text"),
+  columnId: z.string().min(1),
+  op: z.enum(["is_empty", "is_not_empty", "contains", "not_contains", "equals"]),
+  value: z.string().trim().min(1).max(200).optional(),
+});
+
+const numberFilterSchema = z.object({
+  kind: z.literal("number"),
+  columnId: z.string().min(1),
+  op: z.enum(["is_empty", "is_not_empty", "gt", "lt", "equals"]),
+  value: z.number().finite().optional(),
+});
+
+const viewFilterSchema = z.union([textFilterSchema, numberFilterSchema]);
+
+const viewSortSchema = z.object({
+  columnId: z.string().min(1),
+  direction: z.enum(["asc", "desc"]),
+});
+
+const viewConfigSchema = z
+  .object({
+    filters: z.array(viewFilterSchema).default([]),
+    sort: viewSortSchema.optional(),
+    q: z.string().trim().min(1).max(200).optional(),
+    hiddenColumnIds: z.array(z.string().min(1)).default([]),
+  })
+  .passthrough();
+
+type ViewConfig = z.infer<typeof viewConfigSchema>;
+type ViewFilter = z.infer<typeof viewFilterSchema>;
+type ViewSort = z.infer<typeof viewSortSchema>;
+
+// cursor used ONLY when sort is active (keyset pagination)
+const sortCursorSchema = z.object({
+  mode: z.literal("sort"),
+  nullRank: z.number().int().min(0).max(1),
+  t: z.string().nullable().optional(),
+  n: z.number().nullable().optional(),
+  rowIndex: z.number().int(),
+});
+
+const rowsCursorSchema = z.union([z.number().int(), sortCursorSchema]).optional();
+type SortCursor = z.infer<typeof sortCursorSchema>;
+
+function ilikePattern(q: string) {
+  return `%${q}%`;
+}
+
+function filterToSql(
+  f: ViewFilter,
+  colType: ColumnType,
+): Prisma.Sql | null {
+  // If config got stale (column type changed), ignore filter rather than breaking the view.
+  if (f.kind === "text" && colType !== ColumnType.TEXT) return null;
+  if (f.kind === "number" && colType !== ColumnType.NUMBER) return null;
+
+  // "empty" means missing cell OR cell exists but both values null
+  const nonEmptyCheck =
+    colType === ColumnType.TEXT
+      ? Prisma.sql`c."textValue" IS NOT NULL`
+      : Prisma.sql`c."numberValue" IS NOT NULL`;
+
+  if (f.op === "is_empty") {
+    return Prisma.sql`
+      NOT EXISTS (
+        SELECT 1 FROM "Cell" c
+        WHERE c."rowId" = r.id
+          AND c."columnId" = ${f.columnId}
+          AND (${nonEmptyCheck})
+      )
+    `;
+  }
+
+  if (f.op === "is_not_empty") {
+    return Prisma.sql`
+      EXISTS (
+        SELECT 1 FROM "Cell" c
+        WHERE c."rowId" = r.id
+          AND c."columnId" = ${f.columnId}
+          AND (${nonEmptyCheck})
+      )
+    `;
+  }
+
+  if (f.kind === "text") {
+    if (!f.value) return null;
+
+    if (f.op === "contains") {
+      const pat = ilikePattern(f.value);
+      return Prisma.sql`
+        EXISTS (
+          SELECT 1 FROM "Cell" c
+          WHERE c."rowId" = r.id
+            AND c."columnId" = ${f.columnId}
+            AND COALESCE(c."textValue", '') ILIKE ${pat}
+        )
+      `;
+    }
+
+    if (f.op === "not_contains") {
+      const pat = ilikePattern(f.value);
+      return Prisma.sql`
+        NOT EXISTS (
+          SELECT 1 FROM "Cell" c
+          WHERE c."rowId" = r.id
+            AND c."columnId" = ${f.columnId}
+            AND COALESCE(c."textValue", '') ILIKE ${pat}
+        )
+      `;
+    }
+
+    if (f.op === "equals") {
+      return Prisma.sql`
+        EXISTS (
+          SELECT 1 FROM "Cell" c
+          WHERE c."rowId" = r.id
+            AND c."columnId" = ${f.columnId}
+            AND c."textValue" = ${f.value}
+        )
+      `;
+    }
+
+    return null;
+  }
+
+  // number filters
+  if (f.kind === "number") {
+    if (f.op === "gt") {
+      if (typeof f.value !== "number") return null;
+      return Prisma.sql`
+        EXISTS (
+          SELECT 1 FROM "Cell" c
+          WHERE c."rowId" = r.id
+            AND c."columnId" = ${f.columnId}
+            AND c."numberValue" > ${f.value}
+        )
+      `;
+    }
+
+    if (f.op === "lt") {
+      if (typeof f.value !== "number") return null;
+      return Prisma.sql`
+        EXISTS (
+          SELECT 1 FROM "Cell" c
+          WHERE c."rowId" = r.id
+            AND c."columnId" = ${f.columnId}
+            AND c."numberValue" < ${f.value}
+        )
+      `;
+    }
+
+    if (f.op === "equals") {
+      if (typeof f.value !== "number") return null;
+      return Prisma.sql`
+        EXISTS (
+          SELECT 1 FROM "Cell" c
+          WHERE c."rowId" = r.id
+            AND c."columnId" = ${f.columnId}
+            AND c."numberValue" = ${f.value}
+        )
+      `;
+    }
+
+    return null;
+  }
+
+  return null;
 }
 
 export const tableRouter = createTRPCRouter({
   list: protectedProcedure
     .input(z.object({ baseId: z.string().min(1) }))
     .query(async ({ ctx, input }) => {
-      const ownerId = ctx.session.user.id;
-      await requireBaseOwned(ctx.db, input.baseId, ownerId);
+      await requireBaseOwned(ctx as AuthedCtx, input.baseId);
 
       return ctx.db.table.findMany({
         where: { baseId: input.baseId },
@@ -58,11 +231,10 @@ export const tableRouter = createTRPCRouter({
   getMeta: protectedProcedure
     .input(z.object({ baseId: z.string().min(1), tableId: z.string().min(1) }))
     .query(async ({ ctx, input }) => {
-      const ownerId = ctx.session.user.id;
-      await requireTableOwned(ctx.db, input.baseId, input.tableId, ownerId);
+      await requireTableOwned(ctx as AuthedCtx, input.baseId, input.tableId);
 
       const table = await ctx.db.table.findFirst({
-        where: tableOwnedWhere(input.baseId, input.tableId, ownerId),
+        where: tableOwnedWhere(ctx as AuthedCtx, input.baseId, input.tableId),
         select: {
           id: true,
           name: true,
@@ -91,24 +263,109 @@ export const tableRouter = createTRPCRouter({
       z.object({
         baseId: z.string().min(1),
         tableId: z.string().min(1),
-        cursor: z.number().int().optional(),
+        viewId: z.string().min(1).optional(),
+        cursor: rowsCursorSchema,
         limit: z.number().int().min(10).max(500).default(50),
-        q: z.string().trim().min(1).max(200).optional(),
+        q: z.string().trim().min(1).max(200).optional(), // optional override
       }),
     )
     .query(async ({ ctx, input }) => {
-      const ownerId = ctx.session.user.id;
-      await requireTableOwned(ctx.db, input.baseId, input.tableId, ownerId);
+      await requireTableOwned(ctx as AuthedCtx, input.baseId, input.tableId);
 
-      const start = input.cursor ?? 0;
-      const q = input.q?.trim();
+      // Load view config (use provided viewId; otherwise fall back to earliest view)
+      const view = await ctx.db.view.findFirst({
+        where: input.viewId
+          ? {
+              id: input.viewId,
+              tableId: input.tableId,
+              table: { baseId: input.baseId, base: { ownerId: ctx.session.user.id } },
+            }
+          : {
+              tableId: input.tableId,
+              table: { baseId: input.baseId, base: { ownerId: ctx.session.user.id } },
+            },
+        orderBy: input.viewId ? undefined : { createdAt: "asc" },
+        select: { id: true, config: true },
+      });
 
-      // ✅ Normal browse mode
-      if (!q) {
+      const config: ViewConfig = viewConfigSchema.parse(view?.config ?? {});
+
+      // Effective search query: input.q overrides view config
+      const q = (input.q?.trim() || config.q?.trim() || undefined) ?? undefined;
+      const limit = input.limit;
+
+      // Gather referenced columns (filters + sort) for type validation
+      const referencedColIds = Array.from(
+        new Set([
+          ...config.filters.map((f) => f.columnId),
+          ...(config.sort ? [config.sort.columnId] : []),
+        ]),
+      );
+
+      const cols = referencedColIds.length
+        ? await ctx.db.column.findMany({
+            where: { tableId: input.tableId, id: { in: referencedColIds } },
+            select: { id: true, type: true },
+          })
+        : [];
+
+      const colTypeById = new Map(cols.map((c) => [c.id, c.type] as const));
+
+      // Build WHERE parts: tableId + (rowIndex cursor when no sort) + filters + search
+      const whereParts: Prisma.Sql[] = [Prisma.sql`r."tableId" = ${input.tableId}`];
+
+      // filters
+      for (const f of config.filters) {
+        const colType = colTypeById.get(f.columnId);
+        if (!colType) continue; // stale config: column deleted
+        const sql = filterToSql(f, colType);
+        if (sql) whereParts.push(sql);
+      }
+
+      // search across all cells
+      if (q) {
+        const pat = ilikePattern(q);
+        whereParts.push(Prisma.sql`
+          EXISTS (
+            SELECT 1 FROM "Cell" c
+            WHERE c."rowId" = r.id
+              AND COALESCE(c."textValue", c."numberValue"::text, '') ILIKE ${pat}
+          )
+        `);
+      }
+
+      const sort: ViewSort | undefined = (() => {
+        const s = config.sort;
+        if (!s) return undefined;
+        if (!colTypeById.get(s.columnId)) return undefined; // stale sort column
+        return s;
+      })();
+
+      // --------------------
+      // CASE A: No sort => rowIndex pagination (existing)
+      // --------------------
+      if (!sort) {
+        const start =
+          typeof input.cursor === "number" ? input.cursor : 0;
+
+        whereParts.push(Prisma.sql`r."rowIndex" >= ${start}`);
+
+        const matches = await ctx.db.$queryRaw<Array<{ id: string; rowIndex: number }>>(
+          Prisma.sql`
+            SELECT r.id, r."rowIndex" as "rowIndex"
+            FROM "Row" r
+            WHERE ${Prisma.join(whereParts, Prisma.sql` AND `)}
+            ORDER BY r."rowIndex" ASC
+            LIMIT ${limit};
+          `,
+        );
+
+        if (matches.length === 0) return { rows: [], nextCursor: null };
+
+        const matchIds = matches.map((m) => m.id);
+
         const rows = await ctx.db.row.findMany({
-          where: { tableId: input.tableId, rowIndex: { gte: start } },
-          orderBy: { rowIndex: "asc" },
-          take: input.limit,
+          where: { id: { in: matchIds }, tableId: input.tableId },
           select: {
             id: true,
             rowIndex: true,
@@ -116,36 +373,127 @@ export const tableRouter = createTRPCRouter({
           },
         });
 
-        const nextCursor =
-          rows.length === input.limit ? rows[rows.length - 1]!.rowIndex + 1 : null;
+        const byId = new Map(rows.map((r) => [r.id, r] as const));
+        const ordered = matches.map((m) => byId.get(m.id)!).filter(Boolean);
 
-        return { rows, nextCursor };
+        const nextCursor =
+          ordered.length === limit ? ordered[ordered.length - 1]!.rowIndex + 1 : null;
+
+        return { rows: ordered, nextCursor };
       }
 
-      // ✅ Search mode
-      const matches = await ctx.db.$queryRaw<Array<{ id: string; rowIndex: number }>>`
-        SELECT r.id, r."rowIndex" as "rowIndex"
-        FROM "Row" r
-        WHERE r."tableId" = ${input.tableId}
-          AND r."rowIndex" >= ${start}
-          AND EXISTS (
-            SELECT 1
-            FROM "Cell" c
-            WHERE c."rowId" = r.id
-              AND (COALESCE(c."textValue", c."numberValue"::text, '') ILIKE '%' || ${q} || '%')
-          )
-        ORDER BY r."rowIndex" ASC
-        LIMIT ${input.limit};
-      `;
-
-      if (matches.length === 0) {
+      // --------------------
+      // CASE B: Sort => keyset pagination
+      // --------------------
+      const sortColType = colTypeById.get(sort.columnId);
+      if (!sortColType) {
+        // stale config, fall back
         return { rows: [], nextCursor: null };
       }
+
+      const direction = sort.direction; // "asc" | "desc"
+      const dirRaw = direction === "asc" ? Prisma.raw("ASC") : Prisma.raw("DESC");
+
+      // cursor parsing (only meaningful when sort is active)
+      const sortCursor: SortCursor | null =
+        typeof input.cursor === "object" && input.cursor?.mode === "sort"
+          ? input.cursor
+          : null;
+
+      // Build sort expressions based on column type
+      const nullRankExpr =
+        sortColType === ColumnType.TEXT
+          ? Prisma.sql`CASE WHEN sc."textValue" IS NULL THEN 1 ELSE 0 END`
+          : Prisma.sql`CASE WHEN sc."numberValue" IS NULL THEN 1 ELSE 0 END`;
+
+      const sortExpr =
+        sortColType === ColumnType.TEXT
+          ? Prisma.sql`COALESCE(sc."textValue", '')`
+          : Prisma.sql`COALESCE(sc."numberValue", 0)`;
+
+      // Keyset condition
+      if (sortCursor) {
+        const curNullRank = sortCursor.nullRank;
+        const curRowIndex = sortCursor.rowIndex;
+
+        if (sortColType === ColumnType.TEXT) {
+          const curVal = (sortCursor.t ?? "") as string;
+
+          if (direction === "asc") {
+            whereParts.push(Prisma.sql`
+              (
+                (${nullRankExpr} > ${curNullRank})
+                OR (${nullRankExpr} = ${curNullRank} AND ${sortExpr} > ${curVal})
+                OR (${nullRankExpr} = ${curNullRank} AND ${sortExpr} = ${curVal} AND r."rowIndex" > ${curRowIndex})
+              )
+            `);
+          } else {
+            whereParts.push(Prisma.sql`
+              (
+                (${nullRankExpr} > ${curNullRank})
+                OR (${nullRankExpr} = ${curNullRank} AND ${sortExpr} < ${curVal})
+                OR (${nullRankExpr} = ${curNullRank} AND ${sortExpr} = ${curVal} AND r."rowIndex" > ${curRowIndex})
+              )
+            `);
+          }
+        } else {
+          const curVal = (sortCursor.n ?? 0) as number;
+
+          if (direction === "asc") {
+            whereParts.push(Prisma.sql`
+              (
+                (${nullRankExpr} > ${curNullRank})
+                OR (${nullRankExpr} = ${curNullRank} AND ${sortExpr} > ${curVal})
+                OR (${nullRankExpr} = ${curNullRank} AND ${sortExpr} = ${curVal} AND r."rowIndex" > ${curRowIndex})
+              )
+            `);
+          } else {
+            whereParts.push(Prisma.sql`
+              (
+                (${nullRankExpr} > ${curNullRank})
+                OR (${nullRankExpr} = ${curNullRank} AND ${sortExpr} < ${curVal})
+                OR (${nullRankExpr} = ${curNullRank} AND ${sortExpr} = ${curVal} AND r."rowIndex" > ${curRowIndex})
+              )
+            `);
+          }
+        }
+      }
+
+      type MatchSorted = {
+        id: string;
+        rowIndex: number;
+        nullRank: number;
+        sortText: string | null;
+        sortNumber: number | null;
+      };
+
+      const matches = await ctx.db.$queryRaw<MatchSorted[]>(
+        Prisma.sql`
+          SELECT
+            r.id,
+            r."rowIndex" as "rowIndex",
+            (${nullRankExpr})::int as "nullRank",
+            sc."textValue" as "sortText",
+            sc."numberValue" as "sortNumber"
+          FROM "Row" r
+          LEFT JOIN "Cell" sc
+            ON sc."rowId" = r.id
+           AND sc."columnId" = ${sort.columnId}
+          WHERE ${Prisma.join(whereParts, Prisma.sql` AND `)}
+          ORDER BY
+            (${nullRankExpr}) ASC,
+            ${sortExpr} ${dirRaw},
+            r."rowIndex" ASC
+          LIMIT ${limit};
+        `,
+      );
+
+      if (matches.length === 0) return { rows: [], nextCursor: null };
 
       const matchIds = matches.map((m) => m.id);
 
       const rows = await ctx.db.row.findMany({
-        where: { id: { in: matchIds } },
+        where: { id: { in: matchIds }, tableId: input.tableId },
         select: {
           id: true,
           rowIndex: true,
@@ -156,8 +504,17 @@ export const tableRouter = createTRPCRouter({
       const byId = new Map(rows.map((r) => [r.id, r] as const));
       const ordered = matches.map((m) => byId.get(m.id)!).filter(Boolean);
 
+      const last = matches[matches.length - 1]!;
       const nextCursor =
-        ordered.length === input.limit ? ordered[ordered.length - 1]!.rowIndex + 1 : null;
+        matches.length === limit
+          ? ({
+              mode: "sort",
+              nullRank: last.nullRank,
+              t: last.sortText ?? null,
+              n: last.sortNumber ?? null,
+              rowIndex: last.rowIndex,
+            } satisfies SortCursor)
+          : null;
 
       return { rows: ordered, nextCursor };
     }),
@@ -171,8 +528,7 @@ export const tableRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const ownerId = ctx.session.user.id;
-      await requireBaseOwned(ctx.db, input.baseId, ownerId);
+      await requireBaseOwned(ctx as AuthedCtx, input.baseId);
 
       const result = await ctx.db.$transaction(async (tx) => {
         const table = await tx.table.create({
@@ -226,6 +582,17 @@ export const tableRouter = createTRPCRouter({
 
         await tx.cell.createMany({ data: cellData });
 
+        // ✅ default view for the table
+        await tx.view.create({
+          data: {
+            tableId: table.id,
+            name: "Grid view",
+            // minimal config; UI can extend later
+            config: { filters: [], hiddenColumnIds: [] },
+          },
+          select: { id: true },
+        });
+
         return { table, columns: createdCols, seededRows: rowCount };
       });
 
@@ -242,8 +609,7 @@ export const tableRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const ownerId = ctx.session.user.id;
-      await requireTableOwned(ctx.db, input.baseId, input.tableId, ownerId);
+      await requireTableOwned(ctx as AuthedCtx, input.baseId, input.tableId);
 
       const agg = await ctx.db.row.aggregate({
         where: { tableId: input.tableId },
@@ -286,8 +652,7 @@ export const tableRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const ownerId = ctx.session.user.id;
-      await requireTableOwned(ctx.db, input.baseId, input.tableId, ownerId);
+      await requireTableOwned(ctx as AuthedCtx, input.baseId, input.tableId);
 
       const [row, col] = await Promise.all([
         ctx.db.row.findFirst({
@@ -342,8 +707,7 @@ export const tableRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const ownerId = ctx.session.user.id;
-      await requireTableOwned(ctx.db, input.baseId, input.tableId, ownerId);
+      await requireTableOwned(ctx as AuthedCtx, input.baseId, input.tableId);
 
       const max = await ctx.db.column.aggregate({
         where: { tableId: input.tableId },
@@ -414,8 +778,7 @@ export const tableRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const ownerId = ctx.session.user.id;
-      await requireTableOwned(ctx.db, input.baseId, input.tableId, ownerId);
+      await requireTableOwned(ctx as AuthedCtx, input.baseId, input.tableId);
 
       const cols = await ctx.db.column.findMany({
         where: { tableId: input.tableId },
@@ -455,8 +818,7 @@ export const tableRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const ownerId = ctx.session.user.id;
-      await requireTableOwned(ctx.db, input.baseId, input.tableId, ownerId);
+      await requireTableOwned(ctx as AuthedCtx, input.baseId, input.tableId);
 
       const existing = await ctx.db.column.findMany({
         where: { tableId: input.tableId },

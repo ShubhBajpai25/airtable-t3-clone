@@ -163,7 +163,7 @@ function EditableCell(props: {
   const commit = React.useCallback(() => {
     setEditing(false);
     if (draft !== display) props.onCommit(draft);
-  }, [draft, display, props]);
+  }, [draft, display, props.onCommit]);
 
   const cancel = React.useCallback(() => {
     setEditing(false);
@@ -266,19 +266,29 @@ export function TableGrid({ baseId, tableId }: Props) {
 
   const meta = api.table.getMeta.useQuery({ baseId, tableId });
 
-  const rowsInput = React.useMemo(
+  const viewsQ = api.view.list.useQuery({ baseId, tableId });
+  const [viewId, setViewId] = React.useState<string | undefined>(undefined);
+
+  React.useEffect(() => {
+    if (!viewId && viewsQ.data?.length) {
+      setViewId(viewsQ.data[0]!.id); // default view
+    }
+  }, [viewId, viewsQ.data]);
+
+  const rowsKey = React.useMemo(
     () => ({
       baseId,
       tableId,
+      viewId,
       limit: PAGE_SIZE,
       q: activeQuery?.trim() ? activeQuery.trim() : undefined,
     }),
-    [baseId, tableId, activeQuery],
+    [baseId, tableId, viewId, PAGE_SIZE, activeQuery],
   );
 
-  const rowsQ = api.table.rowsInfinite.useInfiniteQuery(rowsInput, {
-    getNextPageParam: (last) => last.nextCursor ?? undefined,
-    enabled: meta.isSuccess,
+  const rowsQ = api.table.rowsInfinite.useInfiniteQuery(rowsKey, {
+  getNextPageParam: (last) => last.nextCursor ?? undefined,
+  enabled: meta.isSuccess && !!viewId,
   });
 
   // ✅ destructure to avoid eslint "missing rowsQ" deps warnings
@@ -338,7 +348,7 @@ export function TableGrid({ baseId, tableId }: Props) {
     onSuccess: async () => {
       setSelectedColumnId(null);
       await utils.table.getMeta.invalidate({ baseId, tableId });
-      await utils.table.rowsInfinite.invalidate(); // invalidate all variants (q/no-q)
+      await utils.table.rowsInfinite.invalidate(rowsKey); // invalidate all variants (q/no-q)
     },
   });
 
@@ -572,7 +582,7 @@ export function TableGrid({ baseId, tableId }: Props) {
       }
 
       await utils.table.getMeta.invalidate({ baseId, tableId });
-      await utils.table.rowsInfinite.invalidate();
+      await utils.table.rowsInfinite.invalidate(rowsKey);
       void meta.refetch();
     } catch (e) {
       setAddErr(e instanceof Error ? e.message : String(e));
@@ -581,9 +591,9 @@ export function TableGrid({ baseId, tableId }: Props) {
 
   const setCellMut = api.table.setCellValue.useMutation({
     onMutate: async (vars) => {
-      await utils.table.rowsInfinite.cancel();
+      await utils.table.rowsInfinite.cancel(rowsKey);
 
-      const prev = utils.table.rowsInfinite.getInfiniteData(rowsInput);
+      const prev = utils.table.rowsInfinite.getInfiniteData(rowsKey);
 
       const colType = cols.find((c) => c.id === vars.columnId)?.type ?? "TEXT";
       const trimmed = vars.value.trim();
@@ -599,7 +609,7 @@ export function TableGrid({ baseId, tableId }: Props) {
                 : { textValue: null, numberValue: n };
             })();
 
-      utils.table.rowsInfinite.setInfiniteData(rowsInput, (old) => {
+      utils.table.rowsInfinite.setInfiniteData(rowsKey, (old) => {
         if (!old) return old;
         return {
           ...old,
@@ -624,10 +634,10 @@ export function TableGrid({ baseId, tableId }: Props) {
       return { prev };
     },
     onError: (_err, _vars, ctx) => {
-      if (ctx?.prev) utils.table.rowsInfinite.setInfiniteData(rowsInput, ctx.prev);
+      if (ctx?.prev) utils.table.rowsInfinite.setInfiniteData(rowsKey, ctx.prev);
     },
     onSettled: async () => {
-      await utils.table.rowsInfinite.invalidate();
+      await utils.table.rowsInfinite.invalidate(rowsKey);
     },
   });
 
@@ -668,6 +678,25 @@ export function TableGrid({ baseId, tableId }: Props) {
             </>
           )}
         </div>
+
+        <select
+          className="rounded-md bg-white/10 px-3 py-2 outline-none"
+          value={viewId ?? ""}
+          onChange={(e) => {
+            setViewId(e.target.value || undefined);
+            setSelectedCell(null);
+            setSelectedColumnId(null);
+            pendingSelRef.current = null;
+            parentRef.current?.scrollTo({ top: 0 });
+          }}
+          disabled={viewsQ.isLoading || !viewsQ.data?.length}
+        >
+          {(viewsQ.data ?? []).map((v) => (
+            <option key={v.id} value={v.id}>
+              {v.name}
+            </option>
+          ))}
+        </select>
 
         <div className="flex items-center gap-2">
           {!addingCol ? (
