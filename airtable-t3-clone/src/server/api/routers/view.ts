@@ -1,8 +1,7 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { Prisma } from "@prisma/client";
+import { Prisma, db } from "~/server/db";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
-import { db } from "~/server/db";
 import { PrismaClientKnownRequestError } from "@prisma/client/runtime/library";
 
 // ---- ViewConfig schema (match what table.rowsInfinite expects) ----
@@ -49,9 +48,12 @@ function viewOwnedWhere(ctx: AuthedCtx, baseId: string, tableId: string, viewId:
   } as const;
 }
 
-function toInputJson(value: unknown): Prisma.InputJsonValue {
-  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+type ViewConfigJsonInput = Parameters<typeof db.view.update>[0]["data"]["config"];
+
+function toInputJson(value: unknown): ViewConfigJsonInput {
+  return JSON.parse(JSON.stringify(value)) as ViewConfigJsonInput;
 }
+
 
 async function requireTableOwned(ctx: AuthedCtx, baseId: string, tableId: string) {
   const table = await ctx.db.table.findFirst({
@@ -197,7 +199,7 @@ export const viewRouter = createTRPCRouter({
 
       const updated = await ctx.db.view.update({
         where: { id: view.id },
-        data: { config: merged },
+        data: { config: toInputJson(merged) },
         select: { id: true, config: true },
       });
 
