@@ -2,7 +2,8 @@ import { z } from "zod";
 import { faker } from "@faker-js/faker";
 import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
-import { db, ColumnType, Prisma } from "~/server/db";
+import { ColumnType, Prisma } from "~/server/db";
+import type { PrismaClient } from "~/server/db";
 import { PrismaClientKnownRequestError } from "@prisma/client/runtime/library";
 
 const DEFAULT_COLS = [
@@ -12,7 +13,7 @@ const DEFAULT_COLS = [
 ] as const;
 
 type AuthedCtx = {
-  db: typeof db;
+  db: PrismaClient;
   session: { user: { id: string } };
 };
 
@@ -297,7 +298,13 @@ export const tableRouter = createTRPCRouter({
       const config: ViewConfig = viewConfigSchema.parse(view?.config ?? {});
 
       // Effective search query: input.q overrides view config
-      const q = (input.q?.trim() || config.q?.trim() || undefined) ?? undefined;
+      const qFromInput = input.q?.trim();
+      const qFromView = config.q?.trim();
+
+      const q =
+        (qFromInput && qFromInput.length > 0 ? qFromInput : undefined) ??
+        (qFromView && qFromView.length > 0 ? qFromView : undefined);
+
       const limit = input.limit;
 
       // Gather referenced columns (filters + sort) for type validation
@@ -423,7 +430,7 @@ export const tableRouter = createTRPCRouter({
         const curRowIndex = sortCursor.rowIndex;
 
         if (sortColType === ColumnType.TEXT) {
-          const curVal = (sortCursor.t ?? "") as string;
+          const curVal = sortCursor.t ?? "";
 
           if (direction === "asc") {
             whereParts.push(Prisma.sql`
@@ -443,7 +450,7 @@ export const tableRouter = createTRPCRouter({
             `);
           }
         } else {
-          const curVal = (sortCursor.n ?? 0) as number;
+          const curVal = sortCursor.n ?? 0;
 
           if (direction === "asc") {
             whereParts.push(Prisma.sql`
