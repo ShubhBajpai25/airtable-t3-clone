@@ -3,6 +3,7 @@ import { faker } from "@faker-js/faker";
 import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { db, ColumnType, Prisma } from "~/server/db";
+import { PrismaClientKnownRequestError } from "@prisma/client/runtime/library";
 
 const DEFAULT_COLS = [
   { name: "Name", type: ColumnType.TEXT },
@@ -893,7 +894,7 @@ export const tableRouter = createTRPCRouter({
 
         return updated;
       } catch (e) {
-        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+        if (e instanceof PrismaClientKnownRequestError && e.code === "P2002") {
           throw new TRPCError({
             code: "CONFLICT",
             message: "A column with that name already exists",

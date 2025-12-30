@@ -3,6 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { Prisma } from "@prisma/client";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { db } from "~/server/db";
+import { PrismaClientKnownRequestError } from "@prisma/client/runtime/library";
 
 // ---- ViewConfig schema (match what table.rowsInfinite expects) ----
 const textFilterSchema = z.object({
@@ -112,7 +113,7 @@ export const viewRouter = createTRPCRouter({
           select: { id: true, name: true, type: true },
         });
       } catch (e) {
-        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+        if (e instanceof PrismaClientKnownRequestError && e.code === "P2002") {
           throw new TRPCError({ code: "CONFLICT", message: "A view with that name already exists" });
         }
         throw e;
@@ -138,7 +139,7 @@ export const viewRouter = createTRPCRouter({
           select: { id: true, name: true },
         });
       } catch (e) {
-        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+        if (e instanceof PrismaClientKnownRequestError && e.code === "P2002") {
           throw new TRPCError({ code: "CONFLICT", message: "A view with that name already exists" });
         }
         throw e;
