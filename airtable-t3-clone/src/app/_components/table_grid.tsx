@@ -3,6 +3,7 @@
 import * as React from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { api } from "~/trpc/react";
+import { ViewControls, type ViewConfig } from "./view_controls";
 
 import {
   DndContext,
@@ -271,9 +272,15 @@ export function TableGrid({ baseId, tableId }: Props) {
 
   React.useEffect(() => {
     if (!viewId && viewsQ.data?.length) {
-      setViewId(viewsQ.data[0]!.id); // default view
+      setViewId(viewsQ.data[0]!.id);
     }
   }, [viewId, viewsQ.data]);
+
+  // fetch selected view config (needed for hidden columns + saved sort/filters)
+  const viewGetQ = api.view.get.useQuery(
+    { baseId, tableId, viewId: viewId ?? "" },
+    { enabled: !!viewId },
+  );
 
   const rowsKey = React.useMemo(
     () => ({
@@ -285,6 +292,10 @@ export function TableGrid({ baseId, tableId }: Props) {
     }),
     [baseId, tableId, viewId, PAGE_SIZE, activeQuery],
   );
+
+    const invalidateRows = React.useCallback(async () => {
+    await utils.table.rowsInfinite.invalidate(rowsKey);
+  }, [utils.table.rowsInfinite, rowsKey]);
 
   const rowsQ = api.table.rowsInfinite.useInfiniteQuery(rowsKey, {
   getNextPageParam: (last) => last.nextCursor ?? undefined,
@@ -300,8 +311,6 @@ export function TableGrid({ baseId, tableId }: Props) {
     fetchNextPage,
   } = rowsQ;
 
-  const cols = React.useMemo(() => meta.data?.columns ?? [], [meta.data?.columns]);
-  const colIds = React.useMemo(() => cols.map((c) => c.id), [cols]);
   const totalRowCount = meta.data?.rowCount ?? 0;
 
   const [addingCol, setAddingCol] = React.useState(false);
@@ -342,7 +351,26 @@ export function TableGrid({ baseId, tableId }: Props) {
     },
   });
 
+
+  const [selectedCell, setSelectedCell] = React.useState<CellSel>(null);
+
   const [selectedColumnId, setSelectedColumnId] = React.useState<string | null>(null);
+
+  const allCols = React.useMemo(() => meta.data?.columns ?? [], [meta.data?.columns]);
+
+  const hiddenColumnIds = (viewGetQ.data?.config as ViewConfig | undefined)?.hiddenColumnIds ?? [];
+  const hiddenSet = React.useMemo(() => new Set(hiddenColumnIds), [hiddenColumnIds]);
+
+  // visible columns for this view
+  const cols = React.useMemo(() => allCols.filter((c) => !hiddenSet.has(c.id)), [allCols, hiddenSet]);
+  const colIds = React.useMemo(() => cols.map((c) => c.id), [cols]);
+
+  // if a selection becomes hidden, clear it
+  React.useEffect(() => {
+    if (selectedColumnId && hiddenSet.has(selectedColumnId)) setSelectedColumnId(null);
+    if (selectedCell && hiddenSet.has(selectedCell.colId)) setSelectedCell(null);
+  }, [hiddenSet, selectedColumnId, selectedCell]);
+
 
   const deleteColMut = api.table.deleteColumn.useMutation({
     onSuccess: async () => {
@@ -369,7 +397,6 @@ export function TableGrid({ baseId, tableId }: Props) {
 
   const displayData = showTypingBlank ? [] : data;
 
-  const [selectedCell, setSelectedCell] = React.useState<CellSel>(null);
   const pendingSelRef = React.useRef<CellSel>(null);
   const parentRef = React.useRef<HTMLDivElement>(null);
 
@@ -544,24 +571,26 @@ export function TableGrid({ baseId, tableId }: Props) {
     const overId = evt.over?.id ? String(evt.over.id) : null;
     if (!overId || activeId === overId) return;
 
-    const currentCols = meta.data?.columns ?? [];
-    const ids = currentCols.map((c) => c.id);
-
-    const oldIndex = ids.indexOf(activeId);
-    const newIndex = ids.indexOf(overId);
+    const visibleIds = cols.map((c) => c.id);
+    const oldIndex = visibleIds.indexOf(activeId);
+    const newIndex = visibleIds.indexOf(overId);
     if (oldIndex < 0 || newIndex < 0) return;
 
-    const nextCols = arrayMove(currentCols, oldIndex, newIndex);
+    const nextVisible = arrayMove(cols, oldIndex, newIndex);
+
+    // …but preserve hidden columns in their original positions in the full ordering
+    const visIter = nextVisible[Symbol.iterator]();
+    const finalCols = allCols.map((c) => (hiddenSet.has(c.id) ? c : (visIter.next().value as typeof c)));
 
     utils.table.getMeta.setData({ baseId, tableId }, (old) => {
       if (!old) return old;
-      return { ...old, columns: nextCols };
+      return { ...old, columns: finalCols };
     });
 
     reorderMut.mutate({
       baseId,
       tableId,
-      orderedColumnIds: nextCols.map((c) => c.id),
+      orderedColumnIds: finalCols.map((c) => c.id),
     });
   };
 
@@ -682,24 +711,29 @@ export function TableGrid({ baseId, tableId }: Props) {
           )}
         </div>
 
-        <select
-          className="rounded-md bg-white/10 px-3 py-2 outline-none"
-          value={viewId ?? ""}
-          onChange={(e) => {
-            setViewId(e.target.value || undefined);
+        <ViewControls
+          baseId={baseId}
+          tableId={tableId}
+          views={(viewsQ.data ?? []).map((v) => ({ id: v.id, name: v.name }))}
+          viewsLoading={viewsQ.isLoading}
+          viewId={viewId}
+          onSelectView={(next) => setViewId(next)}
+          onChangedView={() => {
             setSelectedCell(null);
             setSelectedColumnId(null);
             pendingSelRef.current = null;
             parentRef.current?.scrollTo({ top: 0 });
           }}
-          disabled={viewsQ.isLoading || !viewsQ.data?.length}
-        >
-          {(viewsQ.data ?? []).map((v) => (
-            <option key={v.id} value={v.id}>
-              {v.name}
-            </option>
-          ))}
-        </select>
+          currentConfig={(viewGetQ.data?.config as ViewConfig | undefined) ?? undefined}
+          configLoading={viewGetQ.isLoading}
+          columns={allCols}
+          onConfigSaved={() => {
+            // refetch rows so filters/sort apply immediately
+            void invalidateRows();
+            // scroll to top when view changes
+            parentRef.current?.scrollTo({ top: 0 });
+          }}
+        />
 
         <div className="flex items-center gap-2">
           {!addingCol ? (
