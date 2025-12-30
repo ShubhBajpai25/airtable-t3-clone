@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { Prisma, db } from "~/server/db";
+import { db } from "~/server/db";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { PrismaClientKnownRequestError } from "@prisma/client/runtime/library";
 

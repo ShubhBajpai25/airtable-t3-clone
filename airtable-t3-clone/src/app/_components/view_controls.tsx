@@ -24,38 +24,53 @@ type NumberFilter = {
 
 type ViewFilter = TextFilter | NumberFilter;
 
-type ViewSort = {
-  columnId: string;
-  direction: "asc" | "desc";
-};
+type ViewSort = { columnId: string; direction: "asc" | "desc" };
 
 export type ViewConfig = {
   filters: ViewFilter[];
   sort?: ViewSort;
   q?: string;
   hiddenColumnIds: string[];
-  [k: string]: unknown; // passthrough
+  [k: string]: unknown;
 };
 
-const EMPTY_HIDDEN: string[] = [];
+const EMPTY_STR_ARR: string[] = [];
 
-function defaultConfig(config?: Partial<ViewConfig>): ViewConfig {
+function needsValue(op: TextOp | NumOp) {
+  return op !== "is_empty" && op !== "is_not_empty";
+}
+
+function parseTextOp(v: string): TextOp {
+  if (v === "is_empty") return "is_empty";
+  if (v === "is_not_empty") return "is_not_empty";
+  if (v === "contains") return "contains";
+  if (v === "not_contains") return "not_contains";
+  return "equals";
+}
+
+function parseNumOp(v: string): NumOp {
+  if (v === "is_empty") return "is_empty";
+  if (v === "is_not_empty") return "is_not_empty";
+  if (v === "gt") return "gt";
+  if (v === "lt") return "lt";
+  return "equals";
+}
+
+function parseSortDir(v: string): "asc" | "desc" {
+  return v === "desc" ? "desc" : "asc";
+}
+
+function defaultConfig(cfg?: Partial<ViewConfig>): ViewConfig {
   return {
-    filters: config?.filters ?? [],
-    sort: config?.sort,
-    q: config?.q,
-    hiddenColumnIds: config?.hiddenColumnIds ?? [],
+    filters: cfg?.filters ?? [],
+    sort: cfg?.sort,
+    q: cfg?.q,
+    hiddenColumnIds: cfg?.hiddenColumnIds ?? [],
   };
 }
 
-function needsValue(filter: ViewFilter) {
-  return !(filter.op === "is_empty" || filter.op === "is_not_empty");
-}
-
 function firstFilterForColumn(col: Col): ViewFilter {
-  if (col.type === "NUMBER") {
-    return { kind: "number", columnId: col.id, op: "gt", value: 0 };
-  }
+  if (col.type === "NUMBER") return { kind: "number", columnId: col.id, op: "gt", value: 0 };
   return { kind: "text", columnId: col.id, op: "contains", value: "" };
 }
 
@@ -79,7 +94,7 @@ export function ViewControls(props: {
 }) {
   const utils = api.useUtils();
 
-  const [showPanel, setShowPanel] = React.useState(false);
+  const [panelOpen, setPanelOpen] = React.useState(false);
 
   const [creating, setCreating] = React.useState(false);
   const [newName, setNewName] = React.useState("");
@@ -91,9 +106,9 @@ export function ViewControls(props: {
 
   React.useEffect(() => {
     setDraft(defaultConfig(props.currentConfig));
-    setRenaming(false);
     setCreating(false);
     setNewName("");
+    setRenaming(false);
     setRenameDraft("");
   }, [props.viewId, props.currentConfig]);
 
@@ -115,19 +130,20 @@ export function ViewControls(props: {
   );
 
   const applyConfig = async () => {
-    if (!props.viewId) return;
+    const viewId = props.viewId;
+    if (!viewId) return;
 
     await updateConfigMut.mutateAsync({
       baseId: props.baseId,
       tableId: props.tableId,
-      viewId: props.viewId!, // ✅ prefer non-null assertion
+      viewId,
       patch: draft,
     });
 
     await utils.view.get.invalidate({
       baseId: props.baseId,
       tableId: props.tableId,
-      viewId: props.viewId!,
+      viewId,
     });
 
     props.onConfigSaved?.();
@@ -135,7 +151,7 @@ export function ViewControls(props: {
 
   const handleCreate = async () => {
     const trimmed = newName.trim();
-    const name = trimmed.length > 0 ? trimmed : "New view"; // ✅ no `||`
+    const name = trimmed.length > 0 ? trimmed : "New view";
 
     const created = await createMut.mutateAsync({
       baseId: props.baseId,
@@ -145,7 +161,7 @@ export function ViewControls(props: {
 
     await utils.view.list.invalidate({ baseId: props.baseId, tableId: props.tableId });
 
-    // copy config into the new view (nice UX)
+    // Copy config from current view (nice UX)
     if (props.currentConfig) {
       await updateConfigMut.mutateAsync({
         baseId: props.baseId,
@@ -157,21 +173,22 @@ export function ViewControls(props: {
 
     props.onSelectView(created.id);
     props.onChangedView?.();
-
     setCreating(false);
     setNewName("");
-    setShowPanel(true);
+    setPanelOpen(true);
   };
 
   const handleRename = async () => {
-    if (!props.viewId) return;
+    const viewId = props.viewId;
+    if (!viewId) return;
+
     const next = renameDraft.trim();
     if (next.length === 0) return;
 
     await renameMut.mutateAsync({
       baseId: props.baseId,
       tableId: props.tableId,
-      viewId: props.viewId!,
+      viewId,
       name: next,
     });
 
@@ -180,42 +197,42 @@ export function ViewControls(props: {
   };
 
   const handleDelete = async () => {
-    if (!props.viewId) return;
+    const viewId = props.viewId;
+    if (!viewId) return;
     if (!canDelete) return;
 
     const ok = window.confirm("Delete this view? (You cannot delete the last view)");
     if (!ok) return;
 
-    const toDelete = props.viewId;
-
     await deleteMut.mutateAsync({
       baseId: props.baseId,
       tableId: props.tableId,
-      viewId: props.viewId!,
+      viewId,
     });
 
     await utils.view.list.invalidate({ baseId: props.baseId, tableId: props.tableId });
 
-    const fallback = props.views.find((v) => v.id !== toDelete)?.id;
+    const fallback = props.views.find((v) => v.id !== viewId)?.id;
     props.onSelectView(fallback);
     props.onChangedView?.();
+    setPanelOpen(false);
   };
 
-  // ---- draft config helpers ----
+  // ---- Draft helpers ----
   const toggleHidden = (colId: string) => {
     setDraft((prev) => {
-      const s = new Set(prev.hiddenColumnIds ?? EMPTY_HIDDEN);
+      const current = prev.hiddenColumnIds ?? EMPTY_STR_ARR;
+      const s = new Set(current);
       if (s.has(colId)) s.delete(colId);
       else s.add(colId);
       return { ...prev, hiddenColumnIds: Array.from(s) };
     });
   };
 
-  const setSort = (columnId: string, direction: "asc" | "desc") => {
-    setDraft((prev) => ({ ...prev, sort: { columnId, direction } }));
-  };
-
   const clearSort = () => setDraft((prev) => ({ ...prev, sort: undefined }));
+
+  const setSort = (columnId: string, direction: "asc" | "desc") =>
+    setDraft((prev) => ({ ...prev, sort: { columnId, direction } }));
 
   const addFilter = () => {
     const first = filterableCols[0];
@@ -238,21 +255,21 @@ export function ViewControls(props: {
     });
   };
 
-  const updateFilterOp = (idx: number, rawOp: string) => {
+  const updateFilterOp = (idx: number, raw: string) => {
     setDraft((prev) => {
       const next = [...prev.filters];
       const f = next[idx];
       if (!f) return prev;
 
       if (f.kind === "text") {
-        const op = rawOp as TextOp; // needed due to DOM string
+        const op = parseTextOp(raw);
         const nf: TextFilter = { ...f, op };
-        if (!needsValue(nf)) delete nf.value;
+        if (!needsValue(op)) delete nf.value;
         next[idx] = nf;
       } else {
-        const op = rawOp as NumOp; // needed due to DOM string
+        const op = parseNumOp(raw);
         const nf: NumberFilter = { ...f, op };
-        if (!needsValue(nf)) delete nf.value;
+        if (!needsValue(op)) delete nf.value;
         next[idx] = nf;
       }
 
@@ -270,9 +287,12 @@ export function ViewControls(props: {
         next[idx] = { ...f, value: raw };
       } else {
         const trimmed = raw.trim();
-        const n = trimmed.length === 0 ? undefined : Number(trimmed);
-        const value = typeof n === "number" && Number.isFinite(n) ? n : undefined;
-        next[idx] = { ...f, value };
+        if (trimmed.length === 0) {
+          next[idx] = { ...f, value: undefined };
+        } else {
+          const n = Number(trimmed);
+          next[idx] = { ...f, value: Number.isFinite(n) ? n : undefined };
+        }
       }
 
       return { ...prev, filters: next };
@@ -286,7 +306,8 @@ export function ViewControls(props: {
         className="rounded-md bg-white/10 px-3 py-2 outline-none"
         value={props.viewId ?? ""}
         onChange={(e) => {
-          props.onSelectView(e.target.value || undefined);
+          const v = e.target.value;
+          props.onSelectView(v === "" ? undefined : v); // ✅ no `||`
           props.onChangedView?.();
         }}
         disabled={props.viewsLoading || props.views.length === 0}
@@ -300,8 +321,8 @@ export function ViewControls(props: {
 
       <button
         type="button"
-        className="rounded-md bg-white/10 px-3 py-2 text-white/80 hover:bg-white/15"
-        onClick={() => setShowPanel((s) => !s)}
+        className="rounded-md bg-white/10 px-3 py-2 text-white/80 hover:bg-white/15 disabled:opacity-50"
+        onClick={() => setPanelOpen((s) => !s)}
         disabled={!props.viewId}
         title="View settings"
       >
@@ -365,7 +386,7 @@ export function ViewControls(props: {
         🗑
       </button>
 
-      {showPanel && props.viewId && (
+      {panelOpen && props.viewId && (
         <div className="absolute left-0 right-0 top-[56px] z-10 rounded-xl border border-white/10 bg-[#0b0b0f] p-4 text-white shadow-xl">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
@@ -420,7 +441,7 @@ export function ViewControls(props: {
             <button
               type="button"
               className="rounded-md bg-white/10 px-3 py-2 hover:bg-white/15"
-              onClick={() => setShowPanel(false)}
+              onClick={() => setPanelOpen(false)}
             >
               Close
             </button>
@@ -453,7 +474,7 @@ export function ViewControls(props: {
                   className="rounded-md bg-white/10 px-3 py-2 outline-none"
                   value={draft.sort?.direction ?? "asc"}
                   onChange={(e) => {
-                    const dir = e.target.value as "asc" | "desc";
+                    const dir = parseSortDir(e.target.value);
                     const colId = draft.sort?.columnId;
                     if (colId) setSort(colId, dir);
                   }}
@@ -503,24 +524,7 @@ export function ViewControls(props: {
               ) : (
                 <div className="space-y-2">
                   {draft.filters.map((f, idx) => {
-                    const ops =
-                      f.kind === "text"
-                        ? ([
-                            { value: "is_empty", label: "is empty" },
-                            { value: "is_not_empty", label: "is not empty" },
-                            { value: "contains", label: "contains" },
-                            { value: "not_contains", label: "not contains" },
-                            { value: "equals", label: "equals" },
-                          ] as const)
-                        : ([
-                            { value: "is_empty", label: "is empty" },
-                            { value: "is_not_empty", label: "is not empty" },
-                            { value: "gt", label: ">" },
-                            { value: "lt", label: "<" },
-                            { value: "equals", label: "=" },
-                          ] as const);
-
-                    const showValue = needsValue(f);
+                    const showValue = needsValue(f.op);
                     const valueStr =
                       f.kind === "number" ? String(f.value ?? "") : (f.value ?? "");
 
@@ -546,11 +550,23 @@ export function ViewControls(props: {
                           value={f.op}
                           onChange={(e) => updateFilterOp(idx, e.target.value)}
                         >
-                          {ops.map((o) => (
-                            <option key={o.value} value={o.value}>
-                              {o.label}
-                            </option>
-                          ))}
+                          {f.kind === "text" ? (
+                            <>
+                              <option value="is_empty">is empty</option>
+                              <option value="is_not_empty">is not empty</option>
+                              <option value="contains">contains</option>
+                              <option value="not_contains">not contains</option>
+                              <option value="equals">equals</option>
+                            </>
+                          ) : (
+                            <>
+                              <option value="is_empty">is empty</option>
+                              <option value="is_not_empty">is not empty</option>
+                              <option value="gt">&gt;</option>
+                              <option value="lt">&lt;</option>
+                              <option value="equals">=</option>
+                            </>
+                          )}
                         </select>
 
                         {showValue && (
@@ -603,7 +619,7 @@ export function ViewControls(props: {
             </div>
           </div>
 
-          {(updateConfigMut.error || createMut.error || renameMut.error || deleteMut.error) && (
+          {(updateConfigMut.error ?? createMut.error ?? renameMut.error ?? deleteMut.error) && (
             <div className="mt-3 rounded-md border border-red-500/30 bg-red-500/10 p-2 text-sm text-red-200">
               {(updateConfigMut.error ?? createMut.error ?? renameMut.error ?? deleteMut.error)?.message}
             </div>

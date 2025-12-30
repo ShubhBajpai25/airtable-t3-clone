@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { TableGrid } from "~/app/_components/table_grid";
 
 import { auth } from "~/server/auth";
-import { api, HydrateClient } from "~/trpc/server";
+import { HydrateClient } from "~/trpc/server";
 
 export default async function TablePage({
   params,
