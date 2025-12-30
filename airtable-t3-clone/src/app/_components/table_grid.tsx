@@ -291,10 +291,6 @@ export function TableGrid({ baseId, tableId }: Props) {
   enabled: meta.isSuccess,
   });
 
-  if (rowsQ.isLoading) return <p>Loading rows…</p>;
-  if (rowsQ.error) return <p className="text-red-300">{rowsQ.error.message}</p>;
-
-
   // ✅ destructure to avoid eslint "missing rowsQ" deps warnings
   const {
     data: rowsData,
@@ -667,6 +663,9 @@ export function TableGrid({ baseId, tableId }: Props) {
 
   if (meta.isLoading) return <p>Loading table…</p>;
   if (meta.error) return <p className="text-red-300">{meta.error.message}</p>;
+
+  if (rowsQ.isLoading) return <p>Loading rows…</p>;
+  if (rowsQ.error) return <p className="text-red-300">{rowsQ.error.message}</p>;
 
   return (
     <div className="rounded-xl bg-white/5 p-3">
