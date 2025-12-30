@@ -23,6 +23,11 @@ function tableOwnedWhere(ctx: AuthedCtx, baseId: string, tableId: string) {
   } as const;
 }
 
+function andWhere(parts: Prisma.Sql[]) {
+  if (parts.length === 0) return Prisma.sql`TRUE`;
+  return parts.slice(1).reduce((acc, p) => Prisma.sql`${acc} AND ${p}`, parts[0]!);
+}
+
 async function requireBaseOwned(ctx: AuthedCtx, baseId: string) {
   const base = await ctx.db.base.findFirst({
     where: { id: baseId, ownerId: ctx.session.user.id },
@@ -354,7 +359,7 @@ export const tableRouter = createTRPCRouter({
           Prisma.sql`
             SELECT r.id, r."rowIndex" as "rowIndex"
             FROM "Row" r
-            WHERE ${Prisma.join(whereParts, Prisma.sql` AND `)}
+            WHERE ${andWhere(whereParts)}
             ORDER BY r."rowIndex" ASC
             LIMIT ${limit};
           `,
@@ -479,7 +484,7 @@ export const tableRouter = createTRPCRouter({
           LEFT JOIN "Cell" sc
             ON sc."rowId" = r.id
            AND sc."columnId" = ${sort.columnId}
-          WHERE ${Prisma.join(whereParts, Prisma.sql` AND `)}
+          WHERE ${andWhere(whereParts)}
           ORDER BY
             (${nullRankExpr}) ASC,
             ${sortExpr} ${dirRaw},
