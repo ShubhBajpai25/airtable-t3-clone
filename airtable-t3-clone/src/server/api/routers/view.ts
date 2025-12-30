@@ -49,6 +49,10 @@ function viewOwnedWhere(ctx: AuthedCtx, baseId: string, tableId: string, viewId:
   } as const;
 }
 
+function toInputJson(value: unknown): Prisma.InputJsonValue {
+  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+}
+
 async function requireTableOwned(ctx: AuthedCtx, baseId: string, tableId: string) {
   const table = await ctx.db.table.findFirst({
     where: { id: tableId, baseId, base: { ownerId: ctx.session.user.id } },
