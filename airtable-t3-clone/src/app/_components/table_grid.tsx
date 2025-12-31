@@ -2,10 +2,15 @@
 
 import * as React from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import {
+  flexRender,
+  getCoreRowModel,
+  type ColumnDef,
+  useReactTable,
+} from "@tanstack/react-table";
+
 import { api } from "~/trpc/react";
 import { ViewControls, type ViewConfig } from "./view_controls";
-
-const EMPTY_STR_ARR: string[] = [];
 
 import {
   DndContext,
@@ -25,6 +30,13 @@ import { CSS } from "@dnd-kit/utilities";
 type Props = { baseId: string; tableId: string };
 
 const COL_WIDTH = 180;
+const EMPTY_STR_ARR: string[] = [];
+
+type RowDatum = {
+  id: string;
+  rowIndex: number;
+  cellMap: Record<string, string | number | null>;
+};
 
 export function EditableHeader(props: {
   value: string;
@@ -100,7 +112,7 @@ function SortableHeader({
         opacity: isDragging ? 0.6 : 1,
       }}
       className={[
-        "min-w-[180px] rounded-md",
+        "w-[180px] min-w-[180px] rounded-md",
         selected ? "bg-white/10 ring-2 ring-white/50" : "hover:bg-white/5",
       ].join(" ")}
     >
@@ -275,12 +287,9 @@ export function TableGrid({ baseId, tableId }: Props) {
   const [viewId, setViewId] = React.useState<string | undefined>(undefined);
 
   React.useEffect(() => {
-    if (!viewId && viewsQ.data?.length) {
-      setViewId(viewsQ.data[0]!.id);
-    }
+    if (!viewId && viewsQ.data?.length) setViewId(viewsQ.data[0]!.id);
   }, [viewId, viewsQ.data]);
 
-  // fetch selected view config (needed for hidden columns + saved sort/filters)
   const viewGetQ = api.view.get.useQuery(
     { baseId, tableId, viewId: viewId ?? "" },
     { enabled: !!viewId },
@@ -297,16 +306,15 @@ export function TableGrid({ baseId, tableId }: Props) {
     [baseId, tableId, viewId, PAGE_SIZE, activeQuery],
   );
 
-    const invalidateRows = React.useCallback(async () => {
+  const invalidateRows = React.useCallback(async () => {
     await utils.table.rowsInfinite.invalidate(rowsKey);
-  }, [utils.table.rowsInfinite, rowsKey]);
+  }, [utils, rowsKey]);
 
   const rowsQ = api.table.rowsInfinite.useInfiniteQuery(rowsKey, {
-  getNextPageParam: (last) => last.nextCursor ?? undefined,
-  enabled: meta.isSuccess,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+    enabled: meta.isSuccess,
   });
 
-  // ✅ destructure to avoid eslint "missing rowsQ" deps warnings
   const {
     data: rowsData,
     hasNextPage,
@@ -316,6 +324,50 @@ export function TableGrid({ baseId, tableId }: Props) {
   } = rowsQ;
 
   const totalRowCount = meta.data?.rowCount ?? 0;
+
+  const allCols = React.useMemo(() => meta.data?.columns ?? [], [meta.data?.columns]);
+
+  const hiddenColumnIds = React.useMemo(() => {
+    const cfg = viewGetQ.data?.config as ViewConfig | undefined;
+    return cfg?.hiddenColumnIds ?? EMPTY_STR_ARR;
+  }, [viewGetQ.data]);
+
+  const hiddenSet = React.useMemo(() => new Set(hiddenColumnIds), [hiddenColumnIds]);
+
+  const colById = React.useMemo(() => {
+    const m = new Map<string, (typeof allCols)[number]>();
+    for (const c of allCols) m.set(c.id, c);
+    return m;
+  }, [allCols]);
+
+  const visibleColIds = React.useMemo(() => {
+    return allCols.filter((c) => !hiddenSet.has(c.id)).map((c) => c.id);
+  }, [allCols, hiddenSet]);
+
+  const allColIds = React.useMemo(() => allCols.map((c) => c.id), [allCols]);
+
+  const columnVisibility = React.useMemo(() => {
+    const v: Record<string, boolean> = {};
+    for (const c of allCols) v[c.id] = !hiddenSet.has(c.id);
+    return v;
+  }, [allCols, hiddenSet]);
+
+  const flatRows = React.useMemo(
+    () => rowsData?.pages.flatMap((p) => p.rows) ?? [],
+    [rowsData],
+  );
+
+  const data: RowDatum[] = React.useMemo(() => {
+    return flatRows.map((r) => {
+      const cellMap: Record<string, string | number | null> = {};
+      for (const c of r.cells) {
+        cellMap[c.columnId] = c.textValue ?? c.numberValue ?? null;
+      }
+      return { id: r.id, rowIndex: r.rowIndex, cellMap };
+    });
+  }, [flatRows]);
+
+  const displayData = showTypingBlank ? [] : data;
 
   const [addingCol, setAddingCol] = React.useState(false);
   const [newColName, setNewColName] = React.useState("");
@@ -355,19 +407,8 @@ export function TableGrid({ baseId, tableId }: Props) {
     },
   });
 
-
   const [selectedCell, setSelectedCell] = React.useState<CellSel>(null);
-
   const [selectedColumnId, setSelectedColumnId] = React.useState<string | null>(null);
-
-  const allCols = React.useMemo(() => meta.data?.columns ?? [], [meta.data?.columns]);
-
-  const hiddenColumnIds = (viewGetQ.data?.config as ViewConfig | undefined)?.hiddenColumnIds ?? EMPTY_STR_ARR;
-  const hiddenSet = React.useMemo(() => new Set(hiddenColumnIds), [hiddenColumnIds]);
-
-  // visible columns for this view
-  const cols = React.useMemo(() => allCols.filter((c) => !hiddenSet.has(c.id)), [allCols, hiddenSet]);
-  const colIds = React.useMemo(() => cols.map((c) => c.id), [cols]);
 
   // if a selection becomes hidden, clear it
   React.useEffect(() => {
@@ -375,31 +416,13 @@ export function TableGrid({ baseId, tableId }: Props) {
     if (selectedCell && hiddenSet.has(selectedCell.colId)) setSelectedCell(null);
   }, [hiddenSet, selectedColumnId, selectedCell]);
 
-
   const deleteColMut = api.table.deleteColumn.useMutation({
     onSuccess: async () => {
       setSelectedColumnId(null);
       await utils.table.getMeta.invalidate({ baseId, tableId });
-      await utils.table.rowsInfinite.invalidate(rowsKey); // invalidate all variants (q/no-q)
+      await utils.table.rowsInfinite.invalidate(rowsKey);
     },
   });
-
-  const flatRows = React.useMemo(
-    () => rowsData?.pages.flatMap((p) => p.rows) ?? [],
-    [rowsData],
-  );
-
-  const data = React.useMemo(() => {
-    return flatRows.map((r) => {
-      const cellMap: Record<string, string | number | null> = {};
-      for (const c of r.cells) {
-        cellMap[c.columnId] = c.textValue ?? c.numberValue ?? null;
-      }
-      return { id: r.id, rowIndex: r.rowIndex, cellMap };
-    });
-  }, [flatRows]);
-
-  const displayData = showTypingBlank ? [] : data;
 
   const pendingSelRef = React.useRef<CellSel>(null);
   const parentRef = React.useRef<HTMLDivElement>(null);
@@ -428,10 +451,10 @@ export function TableGrid({ baseId, tableId }: Props) {
 
   React.useEffect(() => {
     if (showTypingBlank) return;
-    if (!selectedCell && !selectedColumnId && displayData.length > 0 && cols.length > 0) {
-      setSelectedCell({ rowIdx: 0, colId: cols[0]!.id });
+    if (!selectedCell && !selectedColumnId && displayData.length > 0 && visibleColIds.length > 0) {
+      setSelectedCell({ rowIdx: 0, colId: visibleColIds[0]! });
     }
-  }, [showTypingBlank, selectedCell, selectedColumnId, displayData.length, cols]);
+  }, [showTypingBlank, selectedCell, selectedColumnId, displayData.length, visibleColIds]);
 
   React.useEffect(() => {
     if (showTypingBlank) return;
@@ -439,11 +462,12 @@ export function TableGrid({ baseId, tableId }: Props) {
 
     rowVirtualizer.scrollToIndex(selectedCell.rowIdx, { align: "auto" });
 
-    const colIdx = cols.findIndex((c) => c.id === selectedCell.colId);
+    const colIdx = visibleColIds.indexOf(selectedCell.colId);
     if (parentRef.current && colIdx >= 0) {
       const targetLeft = colIdx * COL_WIDTH;
       const viewLeft = parentRef.current.scrollLeft;
       const viewRight = viewLeft + parentRef.current.clientWidth;
+
       const cellLeft = targetLeft;
       const cellRight = targetLeft + COL_WIDTH;
 
@@ -459,7 +483,7 @@ export function TableGrid({ baseId, tableId }: Props) {
       );
       el?.focus();
     });
-  }, [showTypingBlank, selectedCell, cols, rowVirtualizer]);
+  }, [showTypingBlank, selectedCell, visibleColIds, rowVirtualizer]);
 
   React.useEffect(() => {
     if (showTypingBlank) return;
@@ -475,7 +499,7 @@ export function TableGrid({ baseId, tableId }: Props) {
     (nextRowIdx: number, nextColId: string) => {
       if (showTypingBlank) return;
 
-      const maxRowIdx = Math.max(0, (totalRowCount || 1) - 1);
+      const maxRowIdx = Math.max(0, (totalRowCount ?? 1) - 1);
       const rowIdx = Math.min(Math.max(0, nextRowIdx), maxRowIdx);
 
       if (rowIdx >= displayData.length && hasNextPage && !isFetchingNextPage) {
@@ -503,10 +527,10 @@ export function TableGrid({ baseId, tableId }: Props) {
   const navigateFrom = React.useCallback(
     (dir: NavDir) => {
       if (showTypingBlank) return;
-      if (!selectedCell || cols.length === 0) return;
+      if (!selectedCell || visibleColIds.length === 0) return;
 
-      const colIdx = cols.findIndex((c) => c.id === selectedCell.colId);
-      const lastColIdx = cols.length - 1;
+      const colIdx = visibleColIds.indexOf(selectedCell.colId);
+      const lastColIdx = visibleColIds.length - 1;
 
       let r = selectedCell.rowIdx;
       let c = colIdx < 0 ? 0 : colIdx;
@@ -533,9 +557,9 @@ export function TableGrid({ baseId, tableId }: Props) {
       }
 
       c = Math.min(Math.max(0, c), lastColIdx);
-      navigateTo(r, cols[c]!.id);
+      navigateTo(r, visibleColIds[c]!);
     },
-    [showTypingBlank, selectedCell, cols, navigateTo],
+    [showTypingBlank, selectedCell, visibleColIds, navigateTo],
   );
 
   React.useEffect(() => {
@@ -575,20 +599,15 @@ export function TableGrid({ baseId, tableId }: Props) {
     const overId = evt.over?.id ? String(evt.over.id) : null;
     if (!overId || activeId === overId) return;
 
-    const visibleIds = cols.map((c) => c.id);
-    const oldIndex = visibleIds.indexOf(activeId);
-    const newIndex = visibleIds.indexOf(overId);
+    const oldIndex = visibleColIds.indexOf(activeId);
+    const newIndex = visibleColIds.indexOf(overId);
     if (oldIndex < 0 || newIndex < 0) return;
 
-    const nextVisible = arrayMove(cols, oldIndex, newIndex);
+    const currentVisibleCols = allCols.filter((c) => !hiddenSet.has(c.id));
+    const nextVisibleCols = arrayMove(currentVisibleCols, oldIndex, newIndex);
 
-    // …but preserve hidden columns in their original positions in the full ordering
-    const visIter = nextVisible[Symbol.iterator]();
-
-    const finalCols = allCols.map((c) => {
-      if (hiddenSet.has(c.id)) return c;
-      return visIter.next().value!; // ✅ this is what eslint wants
-    });
+    let visI = 0;
+    const finalCols = allCols.map((c) => (hiddenSet.has(c.id) ? c : nextVisibleCols[visI++]!));
 
     utils.table.getMeta.setData({ baseId, tableId }, (old) => {
       if (!old) return old;
@@ -632,7 +651,7 @@ export function TableGrid({ baseId, tableId }: Props) {
 
       const prev = utils.table.rowsInfinite.getInfiniteData(rowsKey);
 
-      const colType = cols.find((c) => c.id === vars.columnId)?.type ?? "TEXT";
+      const colType = colById.get(vars.columnId)?.type ?? "TEXT";
       const trimmed = vars.value.trim();
 
       const optimistic =
@@ -698,6 +717,97 @@ export function TableGrid({ baseId, tableId }: Props) {
     fetchNextPage,
   ]);
 
+  // ---- TanStack Table setup (the key rubric fix) ----
+  const columns = React.useMemo<ColumnDef<RowDatum>[]>(() => {
+    return allCols.map((c) => ({
+      id: c.id,
+      accessorFn: (row) => row.cellMap[c.id] ?? null,
+      header: () => (
+        <SortableHeader
+          colId={c.id}
+          selected={selectedColumnId === c.id}
+          onSelect={() => {
+            setSelectedCell(null);
+            setSelectedColumnId(c.id);
+          }}
+        >
+          <EditableHeader
+            value={c.name}
+            isSaving={renameColMut.isPending}
+            onCommit={(next) =>
+              renameColMut.mutate({ baseId, tableId, columnId: c.id, name: next })
+            }
+          />
+        </SortableHeader>
+      ),
+      cell: (ctx) => {
+        const rowId = ctx.row.original.id;
+        const rowIdx = ctx.row.index;
+        const colId = ctx.column.id;
+
+        const colType = colById.get(colId)?.type ?? "TEXT";
+        const value = ctx.getValue() as string | number | null | undefined;
+
+        return (
+          <div className="w-[180px] min-w-[180px]">
+            <EditableCell
+              rowIdx={rowIdx}
+              colId={colId}
+              selected={selectedCell?.rowIdx === rowIdx && selectedCell?.colId === colId}
+              value={value}
+              columnType={colType}
+              isSaving={setCellMut.isPending}
+              onSelect={() => selectCell(rowIdx, colId)}
+              onCommit={(next) =>
+                setCellMut.mutate({
+                  baseId,
+                  tableId,
+                  rowId,
+                  columnId: colId,
+                  value: next,
+                })
+              }
+              onNavigate={navigateFrom}
+            />
+          </div>
+        );
+      },
+    }));
+  }, [
+    allCols,
+    colById,
+    selectedColumnId,
+    selectedCell,
+    renameColMut,
+    setCellMut,
+    selectCell,
+    navigateFrom,
+    baseId,
+    tableId,
+  ]);
+
+  const table = useReactTable({
+    data: displayData,
+    columns,
+    getCoreRowModel: getCoreRowModel(),
+    state: {
+      columnVisibility,
+      columnOrder: allColIds,
+    },
+  });
+
+  const headerGroups = table.getHeaderGroups();
+  const tableRows = table.getRowModel().rows;
+
+  const virtualRows = rowVirtualizer.getVirtualItems();
+  const totalSize = rowVirtualizer.getTotalSize();
+  const paddingTop = virtualRows.length > 0 ? virtualRows[0]!.start : 0;
+  const paddingBottom =
+    virtualRows.length > 0 ? totalSize - virtualRows[virtualRows.length - 1]!.end : 0;
+
+  const visibleLeafCols = table.getVisibleLeafColumns();
+  const visibleColCount = Math.max(1, visibleLeafCols.length);
+
   if (meta.isLoading) return <p>Loading table…</p>;
   if (meta.error) return <p className="text-red-300">{meta.error.message}</p>;
 
@@ -736,9 +846,7 @@ export function TableGrid({ baseId, tableId }: Props) {
           configLoading={viewGetQ.isLoading}
           columns={allCols}
           onConfigSaved={() => {
-            // refetch rows so filters/sort apply immediately
             void invalidateRows();
-            // scroll to top when view changes
             parentRef.current?.scrollTo({ top: 0 });
           }}
         />
@@ -862,33 +970,10 @@ export function TableGrid({ baseId, tableId }: Props) {
 
       {addErr && <div className="mb-3 text-red-300">Add rows failed: {addErr}</div>}
 
-      <DndContext sensors={sensors} onDragEnd={onDragEnd}>
-        <SortableContext items={colIds} strategy={horizontalListSortingStrategy}>
-          <div className="mb-2 flex gap-3 text-white/90">
-            {cols.map((c) => (
-              <SortableHeader
-                key={c.id}
-                colId={c.id}
-                selected={selectedColumnId === c.id}
-                onSelect={() => {
-                  setSelectedCell(null);
-                  setSelectedColumnId(c.id);
-                }}
-              >
-                <EditableHeader
-                  value={c.name}
-                  isSaving={renameColMut.isPending}
-                  onCommit={(next) =>
-                    renameColMut.mutate({ baseId, tableId, columnId: c.id, name: next })
-                  }
-                />
-              </SortableHeader>
-            ))}
-          </div>
-        </SortableContext>
-      </DndContext>
-
-      <div ref={parentRef} className="h-[70vh] overflow-auto rounded-md border border-white/10">
+      <div
+        ref={parentRef}
+        className="h-[70vh] overflow-auto rounded-md border border-white/10"
+      >
         {showTypingBlank && (
           <div className="p-6 text-center text-white/60">
             Press Enter to see results for{" "}
@@ -902,55 +987,73 @@ export function TableGrid({ baseId, tableId }: Props) {
           </div>
         )}
 
-        <div
-          style={{
-            height: `${rowVirtualizer.getTotalSize()}px`,
-            position: "relative",
-          }}
-        >
-          {rowVirtualizer.getVirtualItems().map((vRow) => {
-            const row = displayData[vRow.index];
-            if (!row) return null;
+        {!showTypingBlank && visibleLeafCols.length === 0 && (
+          <div className="p-6 text-center text-white/60">
+            All columns are hidden in this view.
+          </div>
+        )}
 
-            return (
-              <div
-                key={row.id}
-                style={{
-                  position: "absolute",
-                  top: 0,
-                  left: 0,
-                  width: "100%",
-                  transform: `translateY(${vRow.start}px)`,
-                }}
-                className="flex border-b border-white/5"
+        {!showTypingBlank && visibleLeafCols.length > 0 && (
+          <DndContext sensors={sensors} onDragEnd={onDragEnd}>
+            <SortableContext items={visibleColIds} strategy={horizontalListSortingStrategy}>
+              <table
+                className="w-max border-collapse text-white/90"
+                style={{ minWidth: `${visibleLeafCols.length * COL_WIDTH}px` }}
               >
-                {cols.map((c) => (
-                  <div key={c.id} className="min-w-[180px] border-r border-white/5">
-                    <EditableCell
-                      rowIdx={vRow.index}
-                      colId={c.id}
-                      selected={selectedCell?.rowIdx === vRow.index && selectedCell?.colId === c.id}
-                      value={row.cellMap[c.id]}
-                      columnType={c.type}
-                      isSaving={setCellMut.isPending}
-                      onSelect={() => selectCell(vRow.index, c.id)}
-                      onCommit={(next) =>
-                        setCellMut.mutate({
-                          baseId,
-                          tableId,
-                          rowId: row.id,
-                          columnId: c.id,
-                          value: next,
-                        })
-                      }
-                      onNavigate={navigateFrom}
-                    />
-                  </div>
-                ))}
-              </div>
-            );
-          })}
-        </div>
+                <thead className="sticky top-0 z-10 bg-black/30 backdrop-blur">
+                  {headerGroups.map((hg) => (
+                    <tr key={hg.id}>
+                      {hg.headers.map((header) => (
+                        <th
+                          key={header.id}
+                          className="border-b border-white/10 align-top"
+                          style={{ width: COL_WIDTH, minWidth: COL_WIDTH }}
+                        >
+                          {header.isPlaceholder
+                            ? null
+                            : flexRender(header.column.columnDef.header, header.getContext())}
+                        </th>
+                      ))}
+                    </tr>
+                  ))}
+                </thead>
+
+                <tbody>
+                  {paddingTop > 0 && (
+                    <tr>
+                      <td style={{ height: paddingTop }} colSpan={visibleColCount} />
+                    </tr>
+                  )}
+
+                  {virtualRows.map((vRow) => {
+                    const row = tableRows[vRow.index];
+                    if (!row) return null;
+
+                    return (
+                      <tr key={row.id} className="border-b border-white/5">
+                        {row.getVisibleCells().map((cell) => (
+                          <td
+                            key={cell.id}
+                            className="border-r border-white/5 align-top"
+                            style={{ width: COL_WIDTH, minWidth: COL_WIDTH }}
+                          >
+                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                          </td>
+                        ))}
+                      </tr>
+                    );
+                  })}
+
+                  {paddingBottom > 0 && (
+                    <tr>
+                      <td style={{ height: paddingBottom }} colSpan={visibleColCount} />
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </SortableContext>
+          </DndContext>
+        )}
 
         {isFetchingNextPage && !showTypingBlank && (
           <div className="p-3 text-white/60">Loading more…</div>
