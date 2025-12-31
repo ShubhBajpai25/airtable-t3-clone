@@ -7,6 +7,7 @@ import {
   getCoreRowModel,
   type ColumnDef,
   useReactTable,
+  type VisibilityState,
 } from "@tanstack/react-table";
 
 import { api } from "~/trpc/react";
@@ -36,6 +37,25 @@ type RowDatum = {
   id: string;
   rowIndex: number;
   cellMap: Record<string, string | number | null>;
+};
+
+type CellSel = { rowIdx: number; colId: string } | null;
+
+type NavDir = "left" | "right" | "up" | "down" | "tab" | "shiftTab";
+
+type GridMeta = {
+  colsById: Record<string, { type: "TEXT" | "NUMBER"; name: string }>;
+  selectedCell: CellSel;
+  selectedColumnId: string | null;
+  isCellSaving: boolean;
+  isRenaming: boolean;
+
+  onSelectCell: (rowIdx: number, colId: string) => void;
+  onNavigateFrom: (dir: NavDir) => void;
+  onCommitCell: (row: RowDatum, colId: string, next: string) => void;
+
+  onSelectColumn: (colId: string) => void;
+  onRenameColumn: (colId: string, next: string) => void;
 };
 
 export function EditableHeader(props: {
@@ -134,14 +154,10 @@ function SortableHeader({
   );
 }
 
-type CellSel = { rowIdx: number; colId: string } | null;
-
 function isPrintableKey(e: React.KeyboardEvent) {
   if (e.ctrlKey || e.metaKey || e.altKey) return false;
   return e.key.length === 1;
 }
-
-type NavDir = "left" | "right" | "up" | "down" | "tab" | "shiftTab";
 
 function navKey(e: React.KeyboardEvent): NavDir | null {
   if (e.key === "ArrowLeft") return "left";
@@ -308,7 +324,7 @@ export function TableGrid({ baseId, tableId }: Props) {
 
   const invalidateRows = React.useCallback(async () => {
     await utils.table.rowsInfinite.invalidate(rowsKey);
-  }, [utils, rowsKey]);
+  }, [utils.table.rowsInfinite, rowsKey]);
 
   const rowsQ = api.table.rowsInfinite.useInfiniteQuery(rowsKey, {
     getNextPageParam: (last) => last.nextCursor ?? undefined,
@@ -326,7 +342,9 @@ export function TableGrid({ baseId, tableId }: Props) {
   const totalRowCount = meta.data?.rowCount ?? 0;
 
   const allCols = React.useMemo(() => meta.data?.columns ?? [], [meta.data?.columns]);
+  const allColIds = React.useMemo(() => allCols.map((c) => c.id), [allCols]);
 
+  // view hidden ids
   const hiddenColumnIds = React.useMemo(() => {
     const cfg = viewGetQ.data?.config as ViewConfig | undefined;
     return cfg?.hiddenColumnIds ?? EMPTY_STR_ARR;
@@ -334,24 +352,28 @@ export function TableGrid({ baseId, tableId }: Props) {
 
   const hiddenSet = React.useMemo(() => new Set(hiddenColumnIds), [hiddenColumnIds]);
 
+  // visibility state for TanStack
+  const columnVisibility = React.useMemo<VisibilityState>(() => {
+    const v: VisibilityState = {};
+    for (const c of allCols) v[c.id] = !hiddenSet.has(c.id);
+    return v;
+  }, [allCols, hiddenSet]);
+
+  // column lookup (for number/text behavior)
   const colById = React.useMemo(() => {
     const m = new Map<string, (typeof allCols)[number]>();
     for (const c of allCols) m.set(c.id, c);
     return m;
   }, [allCols]);
 
-  const visibleColIds = React.useMemo(() => {
-    return allCols.filter((c) => !hiddenSet.has(c.id)).map((c) => c.id);
-  }, [allCols, hiddenSet]);
+  // colsById for table meta (stable rendering)
+  const colsById = React.useMemo(() => {
+    const out: Record<string, { type: "TEXT" | "NUMBER"; name: string }> = {};
+    for (const c of allCols) out[c.id] = { type: c.type, name: c.name };
+    return out;
+  }, [allCols]);
 
-  const allColIds = React.useMemo(() => allCols.map((c) => c.id), [allCols]);
-
-  const columnVisibility = React.useMemo(() => {
-    const v: Record<string, boolean> = {};
-    for (const c of allCols) v[c.id] = !hiddenSet.has(c.id);
-    return v;
-  }, [allCols, hiddenSet]);
-
+  // ---- DB rows -> RowDatum
   const flatRows = React.useMemo(
     () => rowsData?.pages.flatMap((p) => p.rows) ?? [],
     [rowsData],
@@ -369,61 +391,43 @@ export function TableGrid({ baseId, tableId }: Props) {
 
   const displayData = showTypingBlank ? [] : data;
 
+  // ---- UI state: add col / selection
   const [addingCol, setAddingCol] = React.useState(false);
   const [newColName, setNewColName] = React.useState("");
   const [newColType, setNewColType] = React.useState<"TEXT" | "NUMBER">("TEXT");
 
-  const addColMut = api.table.addColumn.useMutation({
-    onSuccess: async () => {
-      setAddingCol(false);
-      setNewColName("");
-      setNewColType("TEXT");
-      await utils.table.getMeta.invalidate({ baseId, tableId });
-    },
-  });
-
-  const renameColMut = api.table.renameColumn.useMutation({
-    onMutate: async (vars) => {
-      await utils.table.getMeta.cancel({ baseId, tableId });
-      const prev = utils.table.getMeta.getData({ baseId, tableId });
-
-      utils.table.getMeta.setData({ baseId, tableId }, (old) => {
-        if (!old) return old;
-        return {
-          ...old,
-          columns: old.columns.map((c) =>
-            c.id === vars.columnId ? { ...c, name: vars.name } : c,
-          ),
-        };
-      });
-
-      return { prev };
-    },
-    onError: (_err, _vars, ctx) => {
-      if (ctx?.prev) utils.table.getMeta.setData({ baseId, tableId }, ctx.prev);
-    },
-    onSettled: async () => {
-      await utils.table.getMeta.invalidate({ baseId, tableId });
-    },
-  });
-
   const [selectedCell, setSelectedCell] = React.useState<CellSel>(null);
   const [selectedColumnId, setSelectedColumnId] = React.useState<string | null>(null);
 
-  // if a selection becomes hidden, clear it
+  // keep selection valid if hidden
   React.useEffect(() => {
-    if (selectedColumnId && hiddenSet.has(selectedColumnId)) setSelectedColumnId(null);
-    if (selectedCell && hiddenSet.has(selectedCell.colId)) setSelectedCell(null);
-  }, [hiddenSet, selectedColumnId, selectedCell]);
+    if (selectedColumnId && columnVisibility[selectedColumnId] === false) setSelectedColumnId(null);
+    if (selectedCell && columnVisibility[selectedCell.colId] === false) setSelectedCell(null);
+  }, [columnVisibility, selectedColumnId, selectedCell]);
 
-  const deleteColMut = api.table.deleteColumn.useMutation({
-    onSuccess: async () => {
-      setSelectedColumnId(null);
-      await utils.table.getMeta.invalidate({ baseId, tableId });
-      await utils.table.rowsInfinite.invalidate(rowsKey);
-    },
-  });
+  // ---- Column order (TanStack source of truth)
+  const [columnOrder, setColumnOrder] = React.useState<string[]>([]);
 
+  // initialize / append new columns
+  React.useEffect(() => {
+    setColumnOrder((prev) => {
+      if (prev.length === 0) return allColIds;
+
+      const next = prev.filter((id) => allColIds.includes(id));
+      const nextSet = new Set(next);
+      for (const id of allColIds) if (!nextSet.has(id)) next.push(id);
+
+      return next;
+    });
+  }, [allColIds]);
+
+  // visible ids in current columnOrder (used for nav + scroll + DnD list)
+  const visibleColIds = React.useMemo(() => {
+    const order = columnOrder.length ? columnOrder : allColIds;
+    return order.filter((id) => columnVisibility[id] !== false);
+  }, [columnOrder, allColIds, columnVisibility]);
+
+  // ---- virtualizer
   const pendingSelRef = React.useRef<CellSel>(null);
   const parentRef = React.useRef<HTMLDivElement>(null);
 
@@ -440,7 +444,6 @@ export function TableGrid({ baseId, tableId }: Props) {
 
     setSelectedCell(null);
     pendingSelRef.current = null;
-
     parentRef.current?.scrollTo({ top: 0 });
   };
 
@@ -449,6 +452,7 @@ export function TableGrid({ baseId, tableId }: Props) {
     setSelectedCell({ rowIdx, colId });
   }, []);
 
+  // default selection on load
   React.useEffect(() => {
     if (showTypingBlank) return;
     if (!selectedCell && !selectedColumnId && displayData.length > 0 && visibleColIds.length > 0) {
@@ -456,6 +460,7 @@ export function TableGrid({ baseId, tableId }: Props) {
     }
   }, [showTypingBlank, selectedCell, selectedColumnId, displayData.length, visibleColIds]);
 
+  // scroll/focus selected cell
   React.useEffect(() => {
     if (showTypingBlank) return;
     if (!selectedCell) return;
@@ -485,6 +490,7 @@ export function TableGrid({ baseId, tableId }: Props) {
     });
   }, [showTypingBlank, selectedCell, visibleColIds, rowVirtualizer]);
 
+  // pending selection when loading next page
   React.useEffect(() => {
     if (showTypingBlank) return;
     const p = pendingSelRef.current;
@@ -562,6 +568,15 @@ export function TableGrid({ baseId, tableId }: Props) {
     [showTypingBlank, selectedCell, visibleColIds, navigateTo],
   );
 
+  // delete selected column via keyboard (when column selected, not a cell)
+  const deleteColMut = api.table.deleteColumn.useMutation({
+    onSuccess: async () => {
+      setSelectedColumnId(null);
+      await utils.table.getMeta.invalidate({ baseId, tableId });
+      await utils.table.rowsInfinite.invalidate(rowsKey);
+    },
+  });
+
   React.useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (!selectedColumnId) return;
@@ -584,71 +599,50 @@ export function TableGrid({ baseId, tableId }: Props) {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [selectedColumnId, selectedCell, deleteColMut, baseId, tableId]);
 
+  // ---- mutations
+  const addColMut = api.table.addColumn.useMutation({
+    onSuccess: async () => {
+      setAddingCol(false);
+      setNewColName("");
+      setNewColType("TEXT");
+      await utils.table.getMeta.invalidate({ baseId, tableId });
+    },
+  });
+
+  const renameColMut = api.table.renameColumn.useMutation({
+    onMutate: async (vars) => {
+      await utils.table.getMeta.cancel({ baseId, tableId });
+      const prev = utils.table.getMeta.getData({ baseId, tableId });
+
+      utils.table.getMeta.setData({ baseId, tableId }, (old) => {
+        if (!old) return old;
+        return {
+          ...old,
+          columns: old.columns.map((c) =>
+            c.id === vars.columnId ? { ...c, name: vars.name } : c,
+          ),
+        };
+      });
+
+      return { prev };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.prev) utils.table.getMeta.setData({ baseId, tableId }, ctx.prev);
+    },
+    onSettled: async () => {
+      await utils.table.getMeta.invalidate({ baseId, tableId });
+    },
+  });
+
   const reorderMut = api.table.reorderColumns.useMutation({
     onSuccess: async () => {
       await utils.table.getMeta.invalidate({ baseId, tableId });
     },
   });
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-  );
-
-  const onDragEnd = (evt: DragEndEvent) => {
-    const activeId = String(evt.active.id);
-    const overId = evt.over?.id ? String(evt.over.id) : null;
-    if (!overId || activeId === overId) return;
-
-    const oldIndex = visibleColIds.indexOf(activeId);
-    const newIndex = visibleColIds.indexOf(overId);
-    if (oldIndex < 0 || newIndex < 0) return;
-
-    const currentVisibleCols = allCols.filter((c) => !hiddenSet.has(c.id));
-    const nextVisibleCols = arrayMove(currentVisibleCols, oldIndex, newIndex);
-
-    let visI = 0;
-    const finalCols = allCols.map((c) => (hiddenSet.has(c.id) ? c : nextVisibleCols[visI++]!));
-
-    utils.table.getMeta.setData({ baseId, tableId }, (old) => {
-      if (!old) return old;
-      return { ...old, columns: finalCols };
-    });
-
-    reorderMut.mutate({
-      baseId,
-      tableId,
-      orderedColumnIds: finalCols.map((c) => c.id),
-    });
-  };
-
-  const addRowsMut = api.table.addRows.useMutation();
-
-  const handleAdd100k = async () => {
-    setAddErr(null);
-    setAddProgress(0);
-
-    try {
-      let remaining = ADD_TOTAL;
-
-      while (remaining > 0) {
-        const n = Math.min(CHUNK_SIZE, remaining);
-        await addRowsMut.mutateAsync({ baseId, tableId, count: n });
-        remaining -= n;
-        setAddProgress((prev) => prev + n);
-      }
-
-      await utils.table.getMeta.invalidate({ baseId, tableId });
-      await utils.table.rowsInfinite.invalidate(rowsKey);
-      void meta.refetch();
-    } catch (e) {
-      setAddErr(e instanceof Error ? e.message : String(e));
-    }
-  };
-
   const setCellMut = api.table.setCellValue.useMutation({
     onMutate: async (vars) => {
       await utils.table.rowsInfinite.cancel(rowsKey);
-
       const prev = utils.table.rowsInfinite.getInfiniteData(rowsKey);
 
       const colType = colById.get(vars.columnId)?.type ?? "TEXT";
@@ -697,6 +691,76 @@ export function TableGrid({ baseId, tableId }: Props) {
     },
   });
 
+  const addRowsMut = api.table.addRows.useMutation();
+
+  const handleAdd100k = async () => {
+    setAddErr(null);
+    setAddProgress(0);
+
+    try {
+      let remaining = ADD_TOTAL;
+      while (remaining > 0) {
+        const n = Math.min(CHUNK_SIZE, remaining);
+        await addRowsMut.mutateAsync({ baseId, tableId, count: n });
+        remaining -= n;
+        setAddProgress((prev) => prev + n);
+      }
+
+      await utils.table.getMeta.invalidate({ baseId, tableId });
+      await utils.table.rowsInfinite.invalidate(rowsKey);
+      void meta.refetch();
+    } catch (e) {
+      setAddErr(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  // ---- DnD sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+  );
+
+  // IMPORTANT: DnD updates columnOrder immediately (and also persists to DB)
+  const onDragEnd = (evt: DragEndEvent) => {
+    const activeId = String(evt.active.id);
+    const overId = evt.over?.id ? String(evt.over.id) : null;
+    if (!overId || activeId === overId) return;
+
+    const fullOrder = columnOrder.length ? columnOrder : allColIds;
+    const visible = fullOrder.filter((id) => columnVisibility[id] !== false);
+
+    const oldIndex = visible.indexOf(activeId);
+    const newIndex = visible.indexOf(overId);
+    if (oldIndex < 0 || newIndex < 0) return;
+
+    const nextVisible = arrayMove(visible, oldIndex, newIndex);
+
+    // Rebuild full order, preserving hidden columns at their slots
+    const visIter = nextVisible[Symbol.iterator]();
+    const nextOrder = fullOrder.map((id) => {
+      if (columnVisibility[id] === false) return id;
+      return visIter.next().value as string;
+    });
+
+    setColumnOrder(nextOrder);
+
+    // optimistic meta.columns update
+    const finalCols = nextOrder
+      .map((id) => colById.get(id))
+      .filter(Boolean) as (typeof allCols)[number][];
+
+    utils.table.getMeta.setData({ baseId, tableId }, (old) => {
+      if (!old) return old;
+      return { ...old, columns: finalCols };
+    });
+
+    reorderMut.mutate({
+      baseId,
+      tableId,
+      orderedColumnIds: nextOrder,
+    });
+  };
+
+  // ---- infinite fetch trigger
   const loadedRowCount = displayData.length;
   const vItems = rowVirtualizer.getVirtualItems();
   const lastVirtualIndex = vItems.at(-1)?.index ?? -1;
@@ -704,87 +768,98 @@ export function TableGrid({ baseId, tableId }: Props) {
   React.useEffect(() => {
     if (showTypingBlank) return;
     if (lastVirtualIndex < 0) return;
-
     if (lastVirtualIndex >= loadedRowCount - 10 && hasNextPage && !isFetchingNextPage) {
       void fetchNextPage();
     }
-  }, [
-    showTypingBlank,
-    lastVirtualIndex,
-    loadedRowCount,
-    hasNextPage,
-    isFetchingNextPage,
-    fetchNextPage,
-  ]);
+  }, [showTypingBlank, lastVirtualIndex, loadedRowCount, hasNextPage, isFetchingNextPage, fetchNextPage]);
 
-  // ---- TanStack Table setup (the key rubric fix) ----
-  const columns = React.useMemo<ColumnDef<RowDatum>[]>(() => {
-    return allCols.map((c) => ({
-      id: c.id,
-      accessorFn: (row) => row.cellMap[c.id] ?? null,
-      header: () => (
-        <SortableHeader
-          colId={c.id}
-          selected={selectedColumnId === c.id}
-          onSelect={() => {
-            setSelectedCell(null);
-            setSelectedColumnId(c.id);
-          }}
-        >
-          <EditableHeader
-            value={c.name}
-            isSaving={renameColMut.isPending}
-            onCommit={(next) =>
-              renameColMut.mutate({ baseId, tableId, columnId: c.id, name: next })
-            }
-          />
-        </SortableHeader>
-      ),
-      cell: (ctx) => {
-        const rowId = ctx.row.original.id;
-        const rowIdx = ctx.row.index;
-        const colId = ctx.column.id;
+  // ---- TanStack Table (true renderer)
+  const gridMeta = React.useMemo<GridMeta>(
+    () => ({
+      colsById,
+      selectedCell,
+      selectedColumnId,
+      isCellSaving: setCellMut.isPending,
+      isRenaming: renameColMut.isPending,
 
-        const colType = colById.get(colId)?.type ?? "TEXT";
-        const value = ctx.getValue() as string | number | null | undefined;
-
-        return (
-          <div className="w-[180px] min-w-[180px]">
-            <EditableCell
-              rowIdx={rowIdx}
-              colId={colId}
-              selected={selectedCell?.rowIdx === rowIdx && selectedCell?.colId === colId}
-              value={value}
-              columnType={colType}
-              isSaving={setCellMut.isPending}
-              onSelect={() => selectCell(rowIdx, colId)}
-              onCommit={(next) =>
-                setCellMut.mutate({
-                  baseId,
-                  tableId,
-                  rowId,
-                  columnId: colId,
-                  value: next,
-                })
-              }
-              onNavigate={navigateFrom}
-            />
-          </div>
-        );
+      onSelectCell: (r, c) => selectCell(r, c),
+      onNavigateFrom: (dir) => navigateFrom(dir),
+      onCommitCell: (row, colId, next) => {
+        setCellMut.mutate({ baseId, tableId, rowId: row.id, columnId: colId, value: next });
       },
-    }));
-  }, [
-    allCols,
-    colById,
-    selectedColumnId,
-    selectedCell,
-    renameColMut,
-    setCellMut,
-    selectCell,
-    navigateFrom,
-    baseId,
-    tableId,
-  ]);
+
+      onSelectColumn: (colId) => {
+        setSelectedCell(null);
+        setSelectedColumnId(colId);
+      },
+      onRenameColumn: (colId, next) => {
+        renameColMut.mutate({ baseId, tableId, columnId: colId, name: next });
+      },
+    }),
+    [
+      colsById,
+      selectedCell,
+      selectedColumnId,
+      setCellMut,
+      renameColMut,
+      selectCell,
+      navigateFrom,
+      baseId,
+      tableId,
+    ],
+  );
+
+  const columns = React.useMemo<ColumnDef<RowDatum>[]>(
+    () =>
+      allCols.map((c) => ({
+        id: c.id,
+        accessorFn: (row) => row.cellMap[c.id] ?? null,
+
+        header: (ctx) => {
+          const m = ctx.table.options.meta as GridMeta | undefined;
+          const colId = ctx.column.id;
+          const name = m?.colsById[colId]?.name ?? "";
+
+          return (
+            <SortableHeader
+              colId={colId}
+              selected={m?.selectedColumnId === colId}
+              onSelect={() => m?.onSelectColumn(colId)}
+            >
+              <EditableHeader
+                value={name}
+                isSaving={m?.isRenaming ?? false}
+                onCommit={(next) => m?.onRenameColumn(colId, next)}
+              />
+            </SortableHeader>
+          );
+        },
+
+        cell: (ctx) => {
+          const m = ctx.table.options.meta as GridMeta | undefined;
+          const rowIdx = ctx.row.index;
+          const colId = ctx.column.id;
+          const colType = m?.colsById[colId]?.type ?? "TEXT";
+
+          return (
+            <div className="w-[180px] min-w-[180px]">
+              <EditableCell
+                rowIdx={rowIdx}
+                colId={colId}
+                selected={m?.selectedCell?.rowIdx === rowIdx && m?.selectedCell?.colId === colId}
+                value={ctx.getValue() as string | number | null | undefined}
+                columnType={colType}
+                isSaving={m?.isCellSaving ?? false}
+                onSelect={() => m?.onSelectCell(rowIdx, colId)}
+                onCommit={(next) => m?.onCommitCell(ctx.row.original, colId, next)}
+                onNavigate={(dir) => m?.onNavigateFrom(dir)}
+              />
+            </div>
+          );
+        },
+      })),
+    [allCols],
+  );
 
   const table = useReactTable({
     data: displayData,
@@ -792,8 +867,9 @@ export function TableGrid({ baseId, tableId }: Props) {
     getCoreRowModel: getCoreRowModel(),
     state: {
       columnVisibility,
-      columnOrder: allColIds,
+      columnOrder: columnOrder.length ? columnOrder : allColIds,
     },
+    meta: gridMeta,
   });
 
   const headerGroups = table.getHeaderGroups();
@@ -970,10 +1046,7 @@ export function TableGrid({ baseId, tableId }: Props) {
 
       {addErr && <div className="mb-3 text-red-300">Add rows failed: {addErr}</div>}
 
-      <div
-        ref={parentRef}
-        className="h-[70vh] overflow-auto rounded-md border border-white/10"
-      >
+      <div ref={parentRef} className="h-[70vh] overflow-auto rounded-md border border-white/10">
         {showTypingBlank && (
           <div className="p-6 text-center text-white/60">
             Press Enter to see results for{" "}
