@@ -738,8 +738,9 @@ export function TableGrid({ baseId, tableId }: Props) {
     const visIter = nextVisible[Symbol.iterator]();
     const nextOrder = fullOrder.map((id) => {
       if (columnVisibility[id] === false) return id;
-      return visIter.next().value as string;
+      return visIter.next().value!;
     });
+
 
     setColumnOrder(nextOrder);
 
