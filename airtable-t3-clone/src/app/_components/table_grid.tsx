@@ -447,6 +447,8 @@ export function TableGrid({ baseId, tableId }: Props) {
     parentRef.current?.scrollTo({ top: 0 });
   };
 
+  const pagesLoaded = rowsData?.pages.length ?? 0;
+
   const selectCell = React.useCallback((rowIdx: number, colId: string) => {
     setSelectedColumnId(null);
     setSelectedCell({ rowIdx, colId });
@@ -768,11 +770,32 @@ export function TableGrid({ baseId, tableId }: Props) {
 
   React.useEffect(() => {
     if (showTypingBlank) return;
+
+    // During a new search, the list is briefly empty.
+    // Avoid triggering fetchNextPage() off stale virtual indices.
+    if (pagesLoaded === 0) return;
+    if (loadedRowCount === 0) return;
+
+    // If we're currently fetching the first page for the new query,
+    // don't try to fetch next pages yet.
+    if (isFetching && !isFetchingNextPage) return;
+
     if (lastVirtualIndex < 0) return;
+
     if (lastVirtualIndex >= loadedRowCount - 10 && hasNextPage && !isFetchingNextPage) {
       void fetchNextPage();
     }
-  }, [showTypingBlank, lastVirtualIndex, loadedRowCount, hasNextPage, isFetchingNextPage, fetchNextPage]);
+  }, [
+    showTypingBlank,
+    pagesLoaded,
+    loadedRowCount,
+    isFetching,
+    isFetchingNextPage,
+    lastVirtualIndex,
+    hasNextPage,
+    fetchNextPage,
+  ]);
+
 
   // ---- TanStack Table (true renderer)
   const gridMeta = React.useMemo<GridMeta>(
