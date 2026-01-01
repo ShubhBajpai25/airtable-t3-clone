@@ -2,24 +2,14 @@
 
 import * as React from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import {
-  flexRender,
-  getCoreRowModel,
-  type ColumnDef,
-  useReactTable,
-  type VisibilityState,
-} from "@tanstack/react-table";
+import { flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
+import type { ColumnDef, VisibilityState } from "@tanstack/react-table";
 
 import { api } from "~/trpc/react";
 import { ViewControls, type ViewConfig } from "./view_controls";
 
-import {
-  DndContext,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from "@dnd-kit/core";
+import { DndContext, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
+import type { DragEndEvent } from "@dnd-kit/core";
 import {
   SortableContext,
   useSortable,
@@ -289,10 +279,10 @@ export function TableGrid({ baseId, tableId }: Props) {
 
   const utils = api.useUtils();
 
-  const [draftQuery, setDraftQuery] = React.useState("");
+  // --- live search
+  const [queryInput, setQueryInput] = React.useState("");
   const [activeQuery, setActiveQuery] = React.useState<string | undefined>(undefined);
-  const isTypingSearch = draftQuery !== (activeQuery ?? "");
-  const showTypingBlank = draftQuery.trim().length > 0 && isTypingSearch;
+  const SEARCH_DEBOUNCE_MS = 250;
 
   const [addProgress, setAddProgress] = React.useState(0);
   const [addErr, setAddErr] = React.useState<string | null>(null);
@@ -319,12 +309,12 @@ export function TableGrid({ baseId, tableId }: Props) {
       limit: PAGE_SIZE,
       q: activeQuery?.trim() ? activeQuery.trim() : undefined,
     }),
-    [baseId, tableId, viewId, PAGE_SIZE, activeQuery],
+    [baseId, tableId, viewId, activeQuery],
   );
 
   const invalidateRows = React.useCallback(async () => {
     await utils.table.rowsInfinite.invalidate(rowsKey);
-  }, [utils.table.rowsInfinite, rowsKey]);
+  }, [utils, rowsKey]);
 
   const rowsQ = api.table.rowsInfinite.useInfiniteQuery(rowsKey, {
     getNextPageParam: (last) => last.nextCursor ?? undefined,
@@ -379,7 +369,7 @@ export function TableGrid({ baseId, tableId }: Props) {
     [rowsData],
   );
 
-  const data: RowDatum[] = React.useMemo(() => {
+  const displayData: RowDatum[] = React.useMemo(() => {
     return flatRows.map((r) => {
       const cellMap: Record<string, string | number | null> = {};
       for (const c of r.cells) {
@@ -389,8 +379,6 @@ export function TableGrid({ baseId, tableId }: Props) {
     });
   }, [flatRows]);
 
-  const displayData = showTypingBlank ? [] : data;
-
   // ---- UI state: add col / selection
   const [addingCol, setAddingCol] = React.useState(false);
   const [newColName, setNewColName] = React.useState("");
@@ -399,16 +387,9 @@ export function TableGrid({ baseId, tableId }: Props) {
   const [selectedCell, setSelectedCell] = React.useState<CellSel>(null);
   const [selectedColumnId, setSelectedColumnId] = React.useState<string | null>(null);
 
-  // keep selection valid if hidden
-  React.useEffect(() => {
-    if (selectedColumnId && columnVisibility[selectedColumnId] === false) setSelectedColumnId(null);
-    if (selectedCell && columnVisibility[selectedCell.colId] === false) setSelectedCell(null);
-  }, [columnVisibility, selectedColumnId, selectedCell]);
-
   // ---- Column order (TanStack source of truth)
   const [columnOrder, setColumnOrder] = React.useState<string[]>([]);
 
-  // initialize / append new columns
   React.useEffect(() => {
     setColumnOrder((prev) => {
       if (prev.length === 0) return allColIds;
@@ -421,13 +402,18 @@ export function TableGrid({ baseId, tableId }: Props) {
     });
   }, [allColIds]);
 
-  // visible ids in current columnOrder (used for nav + scroll + DnD list)
   const visibleColIds = React.useMemo(() => {
     const order = columnOrder.length ? columnOrder : allColIds;
     return order.filter((id) => columnVisibility[id] !== false);
   }, [columnOrder, allColIds, columnVisibility]);
 
-  // ---- virtualizer
+  // keep selection valid if hidden
+  React.useEffect(() => {
+    if (selectedColumnId && columnVisibility[selectedColumnId] === false) setSelectedColumnId(null);
+    if (selectedCell && columnVisibility[selectedCell.colId] === false) setSelectedCell(null);
+  }, [columnVisibility, selectedColumnId, selectedCell]);
+
+  // ---- refs / virtualizer
   const pendingSelRef = React.useRef<CellSel>(null);
   const parentRef = React.useRef<HTMLDivElement>(null);
 
@@ -438,34 +424,42 @@ export function TableGrid({ baseId, tableId }: Props) {
     overscan: 20,
   });
 
-  const runSearch = () => {
-    const next = draftQuery.trim();
-    setActiveQuery(next ? next : undefined);
+  // ---- debounced live search
+  React.useEffect(() => {
+    const handle = window.setTimeout(() => {
+      const next = queryInput.trim();
+      const q = next.length > 0 ? next : undefined;
 
-    setSelectedCell(null);
-    pendingSelRef.current = null;
-    parentRef.current?.scrollTo({ top: 0 });
-  };
+      setActiveQuery(q);
 
-  const pagesLoaded = rowsData?.pages.length ?? 0;
+      // reset selection + scroll for new query
+      setSelectedCell(null);
+      setSelectedColumnId(null);
+      pendingSelRef.current = null;
+      parentRef.current?.scrollTo({ top: 0 });
+    }, SEARCH_DEBOUNCE_MS);
+
+    return () => window.clearTimeout(handle);
+  }, [queryInput]);
 
   const selectCell = React.useCallback((rowIdx: number, colId: string) => {
     setSelectedColumnId(null);
     setSelectedCell({ rowIdx, colId });
   }, []);
 
-  // default selection on load
+  // default selection when data loads
   React.useEffect(() => {
-    if (showTypingBlank) return;
-    if (!selectedCell && !selectedColumnId && displayData.length > 0 && visibleColIds.length > 0) {
-      setSelectedCell({ rowIdx: 0, colId: visibleColIds[0]! });
-    }
-  }, [showTypingBlank, selectedCell, selectedColumnId, displayData.length, visibleColIds]);
+    if (selectedCell || selectedColumnId) return;
+    if (displayData.length === 0) return;
+    if (visibleColIds.length === 0) return;
+
+    setSelectedCell({ rowIdx: 0, colId: visibleColIds[0]! });
+  }, [selectedCell, selectedColumnId, displayData.length, visibleColIds]);
 
   // scroll/focus selected cell
   React.useEffect(() => {
-    if (showTypingBlank) return;
     if (!selectedCell) return;
+    if (selectedCell.rowIdx < 0 || selectedCell.rowIdx >= displayData.length) return;
 
     rowVirtualizer.scrollToIndex(selectedCell.rowIdx, { align: "auto" });
 
@@ -490,23 +484,20 @@ export function TableGrid({ baseId, tableId }: Props) {
       );
       el?.focus();
     });
-  }, [showTypingBlank, selectedCell, visibleColIds, rowVirtualizer]);
+  }, [selectedCell, visibleColIds, rowVirtualizer, displayData.length]);
 
   // pending selection when loading next page
   React.useEffect(() => {
-    if (showTypingBlank) return;
     const p = pendingSelRef.current;
     if (!p) return;
     if (p.rowIdx < displayData.length) {
       setSelectedCell(p);
       pendingSelRef.current = null;
     }
-  }, [showTypingBlank, displayData.length]);
+  }, [displayData.length]);
 
   const navigateTo = React.useCallback(
     (nextRowIdx: number, nextColId: string) => {
-      if (showTypingBlank) return;
-
       const maxRowIdx = Math.max(0, (totalRowCount ?? 1) - 1);
       const rowIdx = Math.min(Math.max(0, nextRowIdx), maxRowIdx);
 
@@ -522,19 +513,11 @@ export function TableGrid({ baseId, tableId }: Props) {
         colId: nextColId,
       });
     },
-    [
-      showTypingBlank,
-      totalRowCount,
-      displayData.length,
-      hasNextPage,
-      isFetchingNextPage,
-      fetchNextPage,
-    ],
+    [totalRowCount, displayData.length, hasNextPage, isFetchingNextPage, fetchNextPage],
   );
 
   const navigateFrom = React.useCallback(
     (dir: NavDir) => {
-      if (showTypingBlank) return;
       if (!selectedCell || visibleColIds.length === 0) return;
 
       const colIdx = visibleColIds.indexOf(selectedCell.colId);
@@ -567,39 +550,8 @@ export function TableGrid({ baseId, tableId }: Props) {
       c = Math.min(Math.max(0, c), lastColIdx);
       navigateTo(r, visibleColIds[c]!);
     },
-    [showTypingBlank, selectedCell, visibleColIds, navigateTo],
+    [selectedCell, visibleColIds, navigateTo],
   );
-
-  // delete selected column via keyboard (when column selected, not a cell)
-  const deleteColMut = api.table.deleteColumn.useMutation({
-    onSuccess: async () => {
-      setSelectedColumnId(null);
-      await utils.table.getMeta.invalidate({ baseId, tableId });
-      await utils.table.rowsInfinite.invalidate(rowsKey);
-    },
-  });
-
-  React.useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (!selectedColumnId) return;
-      if (selectedCell) return;
-
-      const t = e.target instanceof HTMLElement ? e.target : null;
-      const typing =
-        !!t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
-      if (typing) return;
-
-      if (e.key === "Backspace" || e.key === "Delete") {
-        e.preventDefault();
-        deleteColMut.mutate({ baseId, tableId, columnId: selectedColumnId });
-      }
-
-      if (e.key === "Escape") setSelectedColumnId(null);
-    };
-
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [selectedColumnId, selectedCell, deleteColMut, baseId, tableId]);
 
   // ---- mutations
   const addColMut = api.table.addColumn.useMutation({
@@ -716,12 +668,42 @@ export function TableGrid({ baseId, tableId }: Props) {
     }
   };
 
+  const deleteColMut = api.table.deleteColumn.useMutation({
+    onSuccess: async () => {
+      setSelectedColumnId(null);
+      await utils.table.getMeta.invalidate({ baseId, tableId });
+      await utils.table.rowsInfinite.invalidate(rowsKey);
+    },
+  });
+
+  // delete selected column via keyboard (when column selected, not a cell)
+  React.useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!selectedColumnId) return;
+      if (selectedCell) return;
+
+      const t = e.target instanceof HTMLElement ? e.target : null;
+      const typing =
+        !!t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
+      if (typing) return;
+
+      if (e.key === "Backspace" || e.key === "Delete") {
+        e.preventDefault();
+        deleteColMut.mutate({ baseId, tableId, columnId: selectedColumnId });
+      }
+
+      if (e.key === "Escape") setSelectedColumnId(null);
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [selectedColumnId, selectedCell, deleteColMut, baseId, tableId]);
+
   // ---- DnD sensors
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
   );
 
-  // IMPORTANT: DnD updates columnOrder immediately (and also persists to DB)
   const onDragEnd = (evt: DragEndEvent) => {
     const activeId = String(evt.active.id);
     const overId = evt.over?.id ? String(evt.over.id) : null;
@@ -736,20 +718,19 @@ export function TableGrid({ baseId, tableId }: Props) {
 
     const nextVisible = arrayMove(visible, oldIndex, newIndex);
 
-    // Rebuild full order, preserving hidden columns at their slots
+    // rebuild full order, preserving hidden columns at their slots
     const visIter = nextVisible[Symbol.iterator]();
     const nextOrder = fullOrder.map((id) => {
       if (columnVisibility[id] === false) return id;
       return visIter.next().value!;
     });
 
-
     setColumnOrder(nextOrder);
 
     // optimistic meta.columns update
     const finalCols = nextOrder
       .map((id) => colById.get(id))
-      .filter(Boolean) as (typeof allCols)[number][];
+      .filter((c): c is (typeof allCols)[number] => Boolean(c));
 
     utils.table.getMeta.setData({ baseId, tableId }, (old) => {
       if (!old) return old;
@@ -769,35 +750,27 @@ export function TableGrid({ baseId, tableId }: Props) {
   const lastVirtualIndex = vItems.at(-1)?.index ?? -1;
 
   React.useEffect(() => {
-    if (showTypingBlank) return;
-
-    // During a new search, the list is briefly empty.
-    // Avoid triggering fetchNextPage() off stale virtual indices.
-    if (pagesLoaded === 0) return;
+    if (lastVirtualIndex < 0) return;
+    if (!hasNextPage || isFetchingNextPage) return;
     if (loadedRowCount === 0) return;
 
-    // If we're currently fetching the first page for the new query,
-    // don't try to fetch next pages yet.
+    // During new search, isFetching will be true. We avoid chaining next-page loads
+    // while the first page is still being resolved.
     if (isFetching && !isFetchingNextPage) return;
 
-    if (lastVirtualIndex < 0) return;
-
-    if (lastVirtualIndex >= loadedRowCount - 10 && hasNextPage && !isFetchingNextPage) {
+    if (lastVirtualIndex >= loadedRowCount - 10) {
       void fetchNextPage();
     }
   }, [
-    showTypingBlank,
-    pagesLoaded,
+    lastVirtualIndex,
     loadedRowCount,
+    hasNextPage,
     isFetching,
     isFetchingNextPage,
-    lastVirtualIndex,
-    hasNextPage,
     fetchNextPage,
   ]);
 
-
-  // ---- TanStack Table (true renderer)
+  // ---- TanStack Table (renderer)
   const gridMeta = React.useMemo<GridMeta>(
     () => ({
       colsById,
@@ -1027,36 +1000,32 @@ export function TableGrid({ baseId, tableId }: Props) {
             <input
               className="w-64 rounded-md bg-white/10 px-3 py-2 outline-none"
               placeholder="Search all cells…"
-              value={draftQuery}
-              onChange={(e) => setDraftQuery(e.target.value)}
+              value={queryInput}
+              onChange={(e) => setQueryInput(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  runSearch();
-                }
                 if (e.key === "Escape") {
                   e.preventDefault();
-                  setDraftQuery("");
+                  setQueryInput("");
                   setActiveQuery(undefined);
                   setSelectedCell(null);
+                  setSelectedColumnId(null);
                   pendingSelRef.current = null;
                   parentRef.current?.scrollTo({ top: 0 });
                 }
               }}
             />
 
-            {draftQuery.trim() && isTypingSearch && (
-              <span className="text-sm text-white/60">Press Enter to see results…</span>
-            )}
+            {isFetching && <span className="text-sm text-white/60">Searching…</span>}
 
-            {activeQuery && (
+            {!!activeQuery && (
               <button
                 type="button"
                 className="rounded-md px-3 py-2 text-white/70 hover:text-white"
                 onClick={() => {
-                  setDraftQuery("");
+                  setQueryInput("");
                   setActiveQuery(undefined);
                   setSelectedCell(null);
+                  setSelectedColumnId(null);
                   pendingSelRef.current = null;
                   parentRef.current?.scrollTo({ top: 0 });
                 }}
@@ -1070,27 +1039,21 @@ export function TableGrid({ baseId, tableId }: Props) {
 
       {addErr && <div className="mb-3 text-red-300">Add rows failed: {addErr}</div>}
 
-      <div ref={parentRef} className="h-[70vh] overflow-auto rounded-md border border-white/10">
-        {showTypingBlank && (
-          <div className="p-6 text-center text-white/60">
-            Press Enter to see results for{" "}
-            <span className="text-white">“{draftQuery.trim()}”</span>
-          </div>
-        )}
-
-        {!showTypingBlank && activeQuery && !isFetching && displayData.length === 0 && (
+      <div
+        ref={parentRef}
+        className="h-[70vh] overflow-auto rounded-md border border-white/10"
+      >
+        {!!activeQuery && !isFetching && displayData.length === 0 && (
           <div className="p-6 text-center text-white/60">
             No results for <span className="text-white">“{activeQuery}”</span>
           </div>
         )}
 
-        {!showTypingBlank && visibleLeafCols.length === 0 && (
+        {visibleLeafCols.length === 0 ? (
           <div className="p-6 text-center text-white/60">
             All columns are hidden in this view.
           </div>
-        )}
-
-        {!showTypingBlank && visibleLeafCols.length > 0 && (
+        ) : (
           <DndContext sensors={sensors} onDragEnd={onDragEnd}>
             <SortableContext items={visibleColIds} strategy={horizontalListSortingStrategy}>
               <table
@@ -1152,9 +1115,7 @@ export function TableGrid({ baseId, tableId }: Props) {
           </DndContext>
         )}
 
-        {isFetchingNextPage && !showTypingBlank && (
-          <div className="p-3 text-white/60">Loading more…</div>
-        )}
+        {isFetchingNextPage && <div className="p-3 text-white/60">Loading more…</div>}
       </div>
     </div>
   );
