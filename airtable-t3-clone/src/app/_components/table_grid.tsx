@@ -279,14 +279,13 @@ export function TableGrid({ baseId, tableId }: Props) {
 
   const utils = api.useUtils();
 
-  // ---- selection / scrolling refs (used by search)
+  // refs used by selection + search
   const pendingSelRef = React.useRef<CellSel>(null);
   const parentRef = React.useRef<HTMLDivElement>(null);
 
-  // ---- search (NO debounce; runs on Enter or button)
+  // ---- search (NO debounce)
   const [queryInput, setQueryInput] = React.useState("");
   const [activeQuery, setActiveQuery] = React.useState<string | undefined>(undefined);
-
   const searchRef = React.useRef<HTMLInputElement>(null);
   const [isSearchFocused, setIsSearchFocused] = React.useState(false);
 
@@ -372,7 +371,6 @@ export function TableGrid({ baseId, tableId }: Props) {
   const allCols = React.useMemo(() => meta.data?.columns ?? [], [meta.data?.columns]);
   const allColIds = React.useMemo(() => allCols.map((c) => c.id), [allCols]);
 
-  // view hidden ids
   const hiddenColumnIds = React.useMemo(() => {
     const cfg = viewGetQ.data?.config as ViewConfig | undefined;
     return cfg?.hiddenColumnIds ?? EMPTY_STR_ARR;
@@ -380,28 +378,24 @@ export function TableGrid({ baseId, tableId }: Props) {
 
   const hiddenSet = React.useMemo(() => new Set(hiddenColumnIds), [hiddenColumnIds]);
 
-  // visibility state for TanStack
   const columnVisibility = React.useMemo<VisibilityState>(() => {
     const v: VisibilityState = {};
     for (const c of allCols) v[c.id] = !hiddenSet.has(c.id);
     return v;
   }, [allCols, hiddenSet]);
 
-  // column lookup (for number/text behavior)
   const colById = React.useMemo(() => {
     const m = new Map<string, (typeof allCols)[number]>();
     for (const c of allCols) m.set(c.id, c);
     return m;
   }, [allCols]);
 
-  // colsById for table meta (stable rendering)
   const colsById = React.useMemo(() => {
     const out: Record<string, { type: "TEXT" | "NUMBER"; name: string }> = {};
     for (const c of allCols) out[c.id] = { type: c.type, name: c.name };
     return out;
   }, [allCols]);
 
-  // ---- DB rows -> RowDatum
   const flatRows = React.useMemo(
     () => rowsData?.pages.flatMap((p) => p.rows) ?? [],
     [rowsData],
@@ -417,7 +411,6 @@ export function TableGrid({ baseId, tableId }: Props) {
     });
   }, [flatRows]);
 
-  // ---- Column order (TanStack source of truth)
   const [columnOrder, setColumnOrder] = React.useState<string[]>([]);
 
   React.useEffect(() => {
@@ -437,13 +430,11 @@ export function TableGrid({ baseId, tableId }: Props) {
     return order.filter((id) => columnVisibility[id] !== false);
   }, [columnOrder, allColIds, columnVisibility]);
 
-  // keep selection valid if hidden
   React.useEffect(() => {
     if (selectedColumnId && columnVisibility[selectedColumnId] === false) setSelectedColumnId(null);
     if (selectedCell && columnVisibility[selectedCell.colId] === false) setSelectedCell(null);
   }, [columnVisibility, selectedColumnId, selectedCell]);
 
-  // ---- virtualizer
   const rowVirtualizer = useVirtualizer({
     count: displayData.length,
     getScrollElement: () => parentRef.current,
@@ -456,7 +447,6 @@ export function TableGrid({ baseId, tableId }: Props) {
     setSelectedCell({ rowIdx, colId });
   }, []);
 
-  // default selection when data loads (DON'T steal focus from search)
   React.useEffect(() => {
     if (isSearchFocused) return;
     if (selectedCell || selectedColumnId) return;
@@ -466,7 +456,6 @@ export function TableGrid({ baseId, tableId }: Props) {
     setSelectedCell({ rowIdx: 0, colId: visibleColIds[0]! });
   }, [isSearchFocused, selectedCell, selectedColumnId, displayData.length, visibleColIds]);
 
-  // scroll/focus selected cell (DON'T steal focus from search)
   React.useEffect(() => {
     if (isSearchFocused) return;
     if (!selectedCell) return;
@@ -497,7 +486,6 @@ export function TableGrid({ baseId, tableId }: Props) {
     });
   }, [isSearchFocused, selectedCell, visibleColIds, rowVirtualizer, displayData.length]);
 
-  // pending selection when loading next page
   React.useEffect(() => {
     const p = pendingSelRef.current;
     if (!p) return;
@@ -564,7 +552,6 @@ export function TableGrid({ baseId, tableId }: Props) {
     [selectedCell, visibleColIds, navigateTo],
   );
 
-  // ---- mutations
   const addColMut = api.table.addColumn.useMutation({
     onSuccess: async () => {
       setAddingCol(false);
@@ -687,7 +674,6 @@ export function TableGrid({ baseId, tableId }: Props) {
     },
   });
 
-  // delete selected column via keyboard (when column selected, not a cell)
   React.useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (!selectedColumnId) return;
@@ -710,7 +696,6 @@ export function TableGrid({ baseId, tableId }: Props) {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [selectedColumnId, selectedCell, deleteColMut, baseId, tableId]);
 
-  // ---- DnD sensors
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
   );
@@ -733,12 +718,11 @@ export function TableGrid({ baseId, tableId }: Props) {
     const visIter = nextVisible[Symbol.iterator]();
     const nextOrder = fullOrder.map((id) => {
       if (columnVisibility[id] === false) return id;
-      return visIter.next().value as string;
+      return visIter.next().value!; // ✅ ESLint wants ! (not `as string`)
     });
 
     setColumnOrder(nextOrder);
 
-    // optimistic meta.columns update
     const finalCols = nextOrder
       .map((id) => colById.get(id))
       .filter((c): c is (typeof allCols)[number] => Boolean(c));
@@ -765,8 +749,6 @@ export function TableGrid({ baseId, tableId }: Props) {
     if (!hasNextPage || isFetchingNextPage) return;
     if (loadedRowCount === 0) return;
 
-    // During new search, isFetching will be true. Avoid chaining next-page loads
-    // while the first page is still being resolved.
     if (isFetching && !isFetchingNextPage) return;
 
     if (lastVirtualIndex >= loadedRowCount - 10) {
@@ -781,43 +763,28 @@ export function TableGrid({ baseId, tableId }: Props) {
     fetchNextPage,
   ]);
 
-  // ---- TanStack Table (renderer)
-  const gridMeta = React.useMemo<GridMeta>(
-    () => ({
-      colsById,
-      selectedCell,
-      selectedColumnId,
-      isCellSaving: setCellMut.isPending,
-      isRenaming: renameColMut.isPending,
+  // ✅ no useMemo here => no dependency warning + always fresh isPending values
+  const gridMeta: GridMeta = {
+    colsById,
+    selectedCell,
+    selectedColumnId,
+    isCellSaving: setCellMut.isPending,
+    isRenaming: renameColMut.isPending,
 
-      onSelectCell: (r, c) => selectCell(r, c),
-      onNavigateFrom: (dir) => navigateFrom(dir),
-      onCommitCell: (row, colId, next) => {
-        setCellMut.mutate({ baseId, tableId, rowId: row.id, columnId: colId, value: next });
-      },
+    onSelectCell: (r, c) => selectCell(r, c),
+    onNavigateFrom: (dir) => navigateFrom(dir),
+    onCommitCell: (row, colId, next) => {
+      setCellMut.mutate({ baseId, tableId, rowId: row.id, columnId: colId, value: next });
+    },
 
-      onSelectColumn: (colId) => {
-        setSelectedCell(null);
-        setSelectedColumnId(colId);
-      },
-      onRenameColumn: (colId, next) => {
-        renameColMut.mutate({ baseId, tableId, columnId: colId, name: next });
-      },
-    }),
-    [
-      colsById,
-      selectedCell,
-      selectedColumnId,
-      setCellMut.isPending,
-      renameColMut.isPending,
-      selectCell,
-      navigateFrom,
-      baseId,
-      tableId,
-      setCellMut,
-      renameColMut,
-    ],
-  );
+    onSelectColumn: (colId) => {
+      setSelectedCell(null);
+      setSelectedColumnId(colId);
+    },
+    onRenameColumn: (colId, next) => {
+      renameColMut.mutate({ baseId, tableId, columnId: colId, name: next });
+    },
+  };
 
   const columns = React.useMemo<ColumnDef<RowDatum>[]>(
     () =>
@@ -1009,7 +976,6 @@ export function TableGrid({ baseId, tableId }: Props) {
             Delete column
           </button>
 
-          {/* Search (runs on Enter/button; focus never stolen) */}
           <div className="flex items-center gap-2">
             <input
               ref={searchRef}
@@ -1023,7 +989,6 @@ export function TableGrid({ baseId, tableId }: Props) {
                 if (e.key === "Enter") {
                   e.preventDefault();
                   applySearch();
-                  return;
                 }
                 if (e.key === "Escape") {
                   e.preventDefault();
