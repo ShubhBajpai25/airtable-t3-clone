@@ -1,6 +1,6 @@
 import { GeistSans } from "geist/font/sans";
 import { type Metadata } from "next";
-import { ThemeProvider } from "~/components/theme-provider";
+import { ThemeProvider } from "~/app/_components/theme-provider";
 import { TRPCReactProvider } from "~/trpc/react";
 import "~/styles/globals.css";
 

@@ -1,5 +1,5 @@
-import { AppLayout } from "~/components/app-layout";
-import { TableList } from "~/components/table-list";
+import { AppLayout } from "~/app/_components/app-layout";
+import { TableList } from "~/app/_components/table-list";
 import { api } from "~/trpc/server";
 
 export default async function BasePage({ params }: { params: { baseId: string } }) {
