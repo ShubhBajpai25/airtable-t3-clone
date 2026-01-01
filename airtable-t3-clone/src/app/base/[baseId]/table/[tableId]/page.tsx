@@ -1,32 +1,35 @@
-import Link from "next/link";
-import { redirect } from "next/navigation";
+import { AppLayout } from "~/app/_components/app-layout";
 import { TableGrid } from "~/app/_components/table_grid";
+import { api } from "~/trpc/server";
 
-import { auth } from "~/server/auth";
-import { HydrateClient } from "~/trpc/server";
-
-export default async function TablePage({
-  params,
-}: {
-  params: Promise<{ baseId: string; tableId: string }>;
+export default async function TablePage({ 
+  params 
+}: { 
+  params: { baseId: string; tableId: string } 
 }) {
-  const session = await auth();
-  if (!session?.user) redirect("/api/auth/signin");
-
-  const { baseId, tableId } = await params;
-
+  const bases = await api.base.list();
+  const tables = await api.table.list({ baseId: params.baseId });
+  
   return (
-    <HydrateClient>
-      <main className="min-h-screen bg-gradient-to-b from-[#2e026d] to-[#15162c] p-8 text-white">
-        <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
-          <Link href={`/base/${baseId}`} className="text-white/80 hover:text-white">
-            ← Back to tables
-          </Link>
-
-          <h1 className="text-3xl font-bold">Table</h1>
-          <TableGrid baseId={baseId} tableId={tableId} />
+    <AppLayout 
+      bases={bases} 
+      tables={tables} 
+      currentBaseId={params.baseId}
+      currentTableId={params.tableId}
+    >
+      <div className="h-full bg-gray-50 dark:bg-gray-950">
+        <div className="border-b bg-white px-6 py-4 dark:bg-gray-900 dark:border-gray-800">
+          <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+            <span>Workspace</span>
+            <span>›</span>
+            <span className="font-semibold text-gray-900 dark:text-white">Table</span>
+          </div>
         </div>
-      </main>
-    </HydrateClient>
+        
+        <div className="p-6">
+          <TableGrid baseId={params.baseId} tableId={params.tableId} />
+        </div>
+      </div>
+    </AppLayout>
   );
 }

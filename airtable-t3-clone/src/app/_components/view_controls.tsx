@@ -161,7 +161,6 @@ export function ViewControls(props: {
 
     await utils.view.list.invalidate({ baseId: props.baseId, tableId: props.tableId });
 
-    // Copy config from current view (nice UX)
     if (props.currentConfig) {
       await updateConfigMut.mutateAsync({
         baseId: props.baseId,
@@ -218,7 +217,6 @@ export function ViewControls(props: {
     setPanelOpen(false);
   };
 
-  // ---- Draft helpers ----
   const toggleHidden = (colId: string) => {
     setDraft((prev) => {
       const current = prev.hiddenColumnIds ?? EMPTY_STR_ARR;
@@ -299,15 +297,15 @@ export function ViewControls(props: {
     });
   };
 
-  // ---- UI ----
   return (
     <div className="relative flex items-center gap-2">
+      {/* View Selector */}
       <select
-        className="rounded-md bg-white/10 px-3 py-2 outline-none"
+        className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-white"
         value={props.viewId ?? ""}
         onChange={(e) => {
           const v = e.target.value;
-          props.onSelectView(v === "" ? undefined : v); // ✅ no `||`
+          props.onSelectView(v === "" ? undefined : v);
           props.onChangedView?.();
         }}
         disabled={props.viewsLoading || props.views.length === 0}
@@ -319,9 +317,10 @@ export function ViewControls(props: {
         ))}
       </select>
 
+      {/* Settings Button */}
       <button
         type="button"
-        className="rounded-md bg-white/10 px-3 py-2 text-white/80 hover:bg-white/15 disabled:opacity-50"
+        className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-700 hover:bg-gray-100 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
         onClick={() => setPanelOpen((s) => !s)}
         disabled={!props.viewId}
         title="View settings"
@@ -329,10 +328,11 @@ export function ViewControls(props: {
         ⚙︎
       </button>
 
+      {/* Create View */}
       {!creating ? (
         <button
           type="button"
-          className="rounded-md bg-white/10 px-3 py-2 text-white/80 hover:bg-white/15"
+          className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-700 hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
           onClick={() => {
             setCreating(true);
             setNewName("");
@@ -343,7 +343,7 @@ export function ViewControls(props: {
       ) : (
         <div className="flex items-center gap-2">
           <input
-            className="w-44 rounded-md bg-white/10 px-3 py-2 outline-none"
+            className="w-44 rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-white"
             placeholder="View name"
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
@@ -357,7 +357,7 @@ export function ViewControls(props: {
           />
           <button
             type="button"
-            className="rounded-md bg-white/20 px-3 py-2 font-semibold hover:bg-white/30 disabled:opacity-50"
+            className="rounded-lg bg-blue-600 px-3 py-2 font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
             disabled={createMut.isPending}
             onClick={() => void handleCreate()}
           >
@@ -365,7 +365,7 @@ export function ViewControls(props: {
           </button>
           <button
             type="button"
-            className="rounded-md px-2 py-2 text-white/70 hover:text-white"
+            className="rounded-lg px-2 py-2 text-gray-700 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
             onClick={() => {
               setCreating(false);
               setNewName("");
@@ -376,9 +376,10 @@ export function ViewControls(props: {
         </div>
       )}
 
+      {/* Delete Button */}
       <button
         type="button"
-        className="rounded-md bg-white/10 px-3 py-2 text-white/80 hover:bg-white/15 disabled:opacity-50"
+        className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-700 hover:bg-gray-100 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
         disabled={!props.viewId || !canDelete || deleteMut.isPending}
         onClick={() => void handleDelete()}
         title={canDelete ? "Delete view" : "Cannot delete the last view"}
@@ -386,20 +387,21 @@ export function ViewControls(props: {
         🗑
       </button>
 
+      {/* Settings Panel */}
       {panelOpen && props.viewId && (
-        <div className="absolute left-0 right-0 top-[56px] z-10 rounded-xl border border-white/10 bg-[#0b0b0f] p-4 text-white shadow-xl">
+        <div className="absolute left-0 right-0 top-[56px] z-10 rounded-xl border border-gray-200 bg-white p-4 shadow-xl dark:border-gray-800 dark:bg-gray-900">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
-              <div className="text-sm text-white/60">View</div>
+              <div className="text-sm text-gray-600 dark:text-gray-400">View</div>
 
               {!renaming ? (
                 <div className="flex items-center gap-2">
-                  <div className="truncate text-lg font-semibold">
+                  <div className="truncate text-lg font-semibold text-gray-900 dark:text-white">
                     {selectedView?.name ?? "—"}
                   </div>
                   <button
                     type="button"
-                    className="rounded-md bg-white/10 px-2 py-1 text-sm hover:bg-white/15"
+                    className="rounded-lg border border-gray-300 bg-white px-2 py-1 text-sm text-gray-700 hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
                     onClick={() => {
                       setRenaming(true);
                       setRenameDraft(selectedView?.name ?? "");
@@ -411,7 +413,7 @@ export function ViewControls(props: {
               ) : (
                 <div className="flex items-center gap-2">
                   <input
-                    className="w-64 rounded-md bg-white/10 px-3 py-2 outline-none"
+                    className="w-64 rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-white"
                     value={renameDraft}
                     onChange={(e) => setRenameDraft(e.target.value)}
                     onKeyDown={(e) => {
@@ -421,7 +423,7 @@ export function ViewControls(props: {
                   />
                   <button
                     type="button"
-                    className="rounded-md bg-white/20 px-3 py-2 font-semibold hover:bg-white/30 disabled:opacity-50"
+                    className="rounded-lg bg-blue-600 px-3 py-2 font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
                     disabled={renameMut.isPending}
                     onClick={() => void handleRename()}
                   >
@@ -429,7 +431,7 @@ export function ViewControls(props: {
                   </button>
                   <button
                     type="button"
-                    className="rounded-md px-2 py-2 text-white/70 hover:text-white"
+                    className="rounded-lg px-2 py-2 text-gray-700 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
                     onClick={() => setRenaming(false)}
                   >
                     Cancel
@@ -440,7 +442,7 @@ export function ViewControls(props: {
 
             <button
               type="button"
-              className="rounded-md bg-white/10 px-3 py-2 hover:bg-white/15"
+              className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-700 hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
               onClick={() => setPanelOpen(false)}
             >
               Close
@@ -449,12 +451,12 @@ export function ViewControls(props: {
 
           <div className="mt-4 grid grid-cols-1 gap-6 md:grid-cols-2">
             {/* SORT */}
-            <div className="rounded-lg border border-white/10 bg-white/5 p-3">
-              <div className="mb-2 font-semibold">Sort</div>
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-800">
+              <div className="mb-2 font-semibold text-gray-900 dark:text-white">Sort</div>
 
               <div className="flex items-center gap-2">
                 <select
-                  className="w-full rounded-md bg-white/10 px-3 py-2 outline-none"
+                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-white"
                   value={draft.sort?.columnId ?? ""}
                   onChange={(e) => {
                     const colId = e.target.value;
@@ -471,7 +473,7 @@ export function ViewControls(props: {
                 </select>
 
                 <select
-                  className="rounded-md bg-white/10 px-3 py-2 outline-none"
+                  className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-white"
                   value={draft.sort?.direction ?? "asc"}
                   onChange={(e) => {
                     const dir = parseSortDir(e.target.value);
@@ -487,17 +489,17 @@ export function ViewControls(props: {
             </div>
 
             {/* HIDE COLUMNS */}
-            <div className="rounded-lg border border-white/10 bg-white/5 p-3">
-              <div className="mb-2 font-semibold">Hidden columns</div>
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-800">
+              <div className="mb-2 font-semibold text-gray-900 dark:text-white">Hidden columns</div>
 
-              <div className="max-h-44 overflow-auto rounded-md border border-white/10 p-2">
+              <div className="max-h-44 overflow-auto rounded-lg border border-gray-300 bg-white p-2 dark:border-gray-700 dark:bg-gray-900">
                 {props.columns.map((c) => {
                   const checked = draft.hiddenColumnIds.includes(c.id);
                   return (
-                    <label key={c.id} className="flex items-center gap-2 py-1 text-sm">
+                    <label key={c.id} className="flex items-center gap-2 py-1 text-sm text-gray-900 dark:text-white">
                       <input type="checkbox" checked={checked} onChange={() => toggleHidden(c.id)} />
                       <span className="truncate">
-                        {c.name} <span className="text-white/50">({c.type})</span>
+                        {c.name} <span className="text-gray-500 dark:text-gray-400">({c.type})</span>
                       </span>
                     </label>
                   );
@@ -506,12 +508,12 @@ export function ViewControls(props: {
             </div>
 
             {/* FILTERS */}
-            <div className="rounded-lg border border-white/10 bg-white/5 p-3 md:col-span-2">
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-800 md:col-span-2">
               <div className="mb-2 flex items-center justify-between gap-3">
-                <div className="font-semibold">Filters</div>
+                <div className="font-semibold text-gray-900 dark:text-white">Filters</div>
                 <button
                   type="button"
-                  className="rounded-md bg-white/10 px-3 py-2 hover:bg-white/15 disabled:opacity-50"
+                  className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-700 hover:bg-gray-100 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
                   onClick={addFilter}
                   disabled={filterableCols.length === 0}
                 >
@@ -520,7 +522,7 @@ export function ViewControls(props: {
               </div>
 
               {draft.filters.length === 0 ? (
-                <div className="text-sm text-white/60">No filters.</div>
+                <div className="text-sm text-gray-600 dark:text-gray-400">No filters.</div>
               ) : (
                 <div className="space-y-2">
                   {draft.filters.map((f, idx) => {
@@ -531,10 +533,10 @@ export function ViewControls(props: {
                     return (
                       <div
                         key={`${idx}-${f.columnId}-${f.op}`}
-                        className="flex flex-wrap items-center gap-2 rounded-md border border-white/10 bg-black/20 p-2"
+                        className="flex flex-wrap items-center gap-2 rounded-lg border border-gray-300 bg-white p-2 dark:border-gray-700 dark:bg-gray-900"
                       >
                         <select
-                          className="min-w-[220px] rounded-md bg-white/10 px-3 py-2 outline-none"
+                          className="min-w-[220px] rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-white"
                           value={f.columnId}
                           onChange={(e) => updateFilterColumn(idx, e.target.value)}
                         >
@@ -546,7 +548,7 @@ export function ViewControls(props: {
                         </select>
 
                         <select
-                          className="min-w-[180px] rounded-md bg-white/10 px-3 py-2 outline-none"
+                          className="min-w-[180px] rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-white"
                           value={f.op}
                           onChange={(e) => updateFilterOp(idx, e.target.value)}
                         >
@@ -571,7 +573,7 @@ export function ViewControls(props: {
 
                         {showValue && (
                           <input
-                            className="min-w-[220px] flex-1 rounded-md bg-white/10 px-3 py-2 outline-none"
+                            className="min-w-[220px] flex-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-white"
                             placeholder={f.kind === "number" ? "Number…" : "Text…"}
                             value={valueStr}
                             onChange={(e) => updateFilterValue(idx, e.target.value)}
@@ -581,7 +583,7 @@ export function ViewControls(props: {
 
                         <button
                           type="button"
-                          className="rounded-md bg-white/10 px-3 py-2 hover:bg-white/15"
+                          className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-700 hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
                           onClick={() => removeFilter(idx)}
                         >
                           Remove
@@ -595,14 +597,14 @@ export function ViewControls(props: {
           </div>
 
           <div className="mt-4 flex items-center justify-between gap-3">
-            <div className="text-sm text-white/60">
+            <div className="text-sm text-gray-600 dark:text-gray-400">
               {props.configLoading ? "Loading view…" : "Edits are applied when you click Apply."}
             </div>
 
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                className="rounded-md bg-white/10 px-3 py-2 hover:bg-white/15"
+                className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-700 hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
                 onClick={() => setDraft(defaultConfig(props.currentConfig))}
               >
                 Reset
@@ -610,7 +612,7 @@ export function ViewControls(props: {
 
               <button
                 type="button"
-                className="rounded-md bg-white/20 px-4 py-2 font-semibold hover:bg-white/30 disabled:opacity-50"
+                className="rounded-lg bg-blue-600 px-4 py-2 font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
                 disabled={!props.viewId || updateConfigMut.isPending}
                 onClick={() => void applyConfig()}
               >
@@ -620,7 +622,7 @@ export function ViewControls(props: {
           </div>
 
           {(updateConfigMut.error ?? createMut.error ?? renameMut.error ?? deleteMut.error) && (
-            <div className="mt-3 rounded-md border border-red-500/30 bg-red-500/10 p-2 text-sm text-red-200">
+            <div className="mt-3 rounded-lg border border-red-300 bg-red-50 p-2 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
               {(updateConfigMut.error ?? createMut.error ?? renameMut.error ?? deleteMut.error)?.message}
             </div>
           )}
