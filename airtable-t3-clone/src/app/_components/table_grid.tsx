@@ -279,10 +279,48 @@ export function TableGrid({ baseId, tableId }: Props) {
 
   const utils = api.useUtils();
 
-  // --- live search
+  // ---- selection / scrolling refs (used by search)
+  const pendingSelRef = React.useRef<CellSel>(null);
+  const parentRef = React.useRef<HTMLDivElement>(null);
+
+  // ---- search (NO debounce; runs on Enter or button)
   const [queryInput, setQueryInput] = React.useState("");
   const [activeQuery, setActiveQuery] = React.useState<string | undefined>(undefined);
-  const SEARCH_DEBOUNCE_MS = 250;
+
+  const searchRef = React.useRef<HTMLInputElement>(null);
+  const [isSearchFocused, setIsSearchFocused] = React.useState(false);
+
+  // ---- UI state: add col / selection
+  const [addingCol, setAddingCol] = React.useState(false);
+  const [newColName, setNewColName] = React.useState("");
+  const [newColType, setNewColType] = React.useState<"TEXT" | "NUMBER">("TEXT");
+
+  const [selectedCell, setSelectedCell] = React.useState<CellSel>(null);
+  const [selectedColumnId, setSelectedColumnId] = React.useState<string | null>(null);
+
+  const clearSearch = React.useCallback(() => {
+    setQueryInput("");
+    setActiveQuery(undefined);
+
+    setSelectedCell(null);
+    setSelectedColumnId(null);
+    pendingSelRef.current = null;
+    parentRef.current?.scrollTo({ top: 0 });
+
+    requestAnimationFrame(() => searchRef.current?.focus());
+  }, []);
+
+  const applySearch = React.useCallback(() => {
+    const q = queryInput.trim();
+    setActiveQuery(q.length ? q : undefined);
+
+    setSelectedCell(null);
+    setSelectedColumnId(null);
+    pendingSelRef.current = null;
+    parentRef.current?.scrollTo({ top: 0 });
+
+    requestAnimationFrame(() => searchRef.current?.focus());
+  }, [queryInput]);
 
   const [addProgress, setAddProgress] = React.useState(0);
   const [addErr, setAddErr] = React.useState<string | null>(null);
@@ -314,7 +352,7 @@ export function TableGrid({ baseId, tableId }: Props) {
 
   const invalidateRows = React.useCallback(async () => {
     await utils.table.rowsInfinite.invalidate(rowsKey);
-  }, [utils, rowsKey]);
+  }, [utils.table.rowsInfinite, rowsKey]);
 
   const rowsQ = api.table.rowsInfinite.useInfiniteQuery(rowsKey, {
     getNextPageParam: (last) => last.nextCursor ?? undefined,
@@ -379,14 +417,6 @@ export function TableGrid({ baseId, tableId }: Props) {
     });
   }, [flatRows]);
 
-  // ---- UI state: add col / selection
-  const [addingCol, setAddingCol] = React.useState(false);
-  const [newColName, setNewColName] = React.useState("");
-  const [newColType, setNewColType] = React.useState<"TEXT" | "NUMBER">("TEXT");
-
-  const [selectedCell, setSelectedCell] = React.useState<CellSel>(null);
-  const [selectedColumnId, setSelectedColumnId] = React.useState<string | null>(null);
-
   // ---- Column order (TanStack source of truth)
   const [columnOrder, setColumnOrder] = React.useState<string[]>([]);
 
@@ -413,10 +443,7 @@ export function TableGrid({ baseId, tableId }: Props) {
     if (selectedCell && columnVisibility[selectedCell.colId] === false) setSelectedCell(null);
   }, [columnVisibility, selectedColumnId, selectedCell]);
 
-  // ---- refs / virtualizer
-  const pendingSelRef = React.useRef<CellSel>(null);
-  const parentRef = React.useRef<HTMLDivElement>(null);
-
+  // ---- virtualizer
   const rowVirtualizer = useVirtualizer({
     count: displayData.length,
     getScrollElement: () => parentRef.current,
@@ -424,40 +451,24 @@ export function TableGrid({ baseId, tableId }: Props) {
     overscan: 20,
   });
 
-  // ---- debounced live search
-  React.useEffect(() => {
-    const handle = window.setTimeout(() => {
-      const next = queryInput.trim();
-      const q = next.length > 0 ? next : undefined;
-
-      setActiveQuery(q);
-
-      // reset selection + scroll for new query
-      setSelectedCell(null);
-      setSelectedColumnId(null);
-      pendingSelRef.current = null;
-      parentRef.current?.scrollTo({ top: 0 });
-    }, SEARCH_DEBOUNCE_MS);
-
-    return () => window.clearTimeout(handle);
-  }, [queryInput]);
-
   const selectCell = React.useCallback((rowIdx: number, colId: string) => {
     setSelectedColumnId(null);
     setSelectedCell({ rowIdx, colId });
   }, []);
 
-  // default selection when data loads
+  // default selection when data loads (DON'T steal focus from search)
   React.useEffect(() => {
+    if (isSearchFocused) return;
     if (selectedCell || selectedColumnId) return;
     if (displayData.length === 0) return;
     if (visibleColIds.length === 0) return;
 
     setSelectedCell({ rowIdx: 0, colId: visibleColIds[0]! });
-  }, [selectedCell, selectedColumnId, displayData.length, visibleColIds]);
+  }, [isSearchFocused, selectedCell, selectedColumnId, displayData.length, visibleColIds]);
 
-  // scroll/focus selected cell
+  // scroll/focus selected cell (DON'T steal focus from search)
   React.useEffect(() => {
+    if (isSearchFocused) return;
     if (!selectedCell) return;
     if (selectedCell.rowIdx < 0 || selectedCell.rowIdx >= displayData.length) return;
 
@@ -484,7 +495,7 @@ export function TableGrid({ baseId, tableId }: Props) {
       );
       el?.focus();
     });
-  }, [selectedCell, visibleColIds, rowVirtualizer, displayData.length]);
+  }, [isSearchFocused, selectedCell, visibleColIds, rowVirtualizer, displayData.length]);
 
   // pending selection when loading next page
   React.useEffect(() => {
@@ -722,7 +733,7 @@ export function TableGrid({ baseId, tableId }: Props) {
     const visIter = nextVisible[Symbol.iterator]();
     const nextOrder = fullOrder.map((id) => {
       if (columnVisibility[id] === false) return id;
-      return visIter.next().value!;
+      return visIter.next().value as string;
     });
 
     setColumnOrder(nextOrder);
@@ -754,7 +765,7 @@ export function TableGrid({ baseId, tableId }: Props) {
     if (!hasNextPage || isFetchingNextPage) return;
     if (loadedRowCount === 0) return;
 
-    // During new search, isFetching will be true. We avoid chaining next-page loads
+    // During new search, isFetching will be true. Avoid chaining next-page loads
     // while the first page is still being resolved.
     if (isFetching && !isFetchingNextPage) return;
 
@@ -797,12 +808,14 @@ export function TableGrid({ baseId, tableId }: Props) {
       colsById,
       selectedCell,
       selectedColumnId,
-      setCellMut,
-      renameColMut,
+      setCellMut.isPending,
+      renameColMut.isPending,
       selectCell,
       navigateFrom,
       baseId,
       tableId,
+      setCellMut,
+      renameColMut,
     ],
   );
 
@@ -996,39 +1009,44 @@ export function TableGrid({ baseId, tableId }: Props) {
             Delete column
           </button>
 
+          {/* Search (runs on Enter/button; focus never stolen) */}
           <div className="flex items-center gap-2">
             <input
+              ref={searchRef}
               className="w-64 rounded-md bg-white/10 px-3 py-2 outline-none"
               placeholder="Search all cells…"
               value={queryInput}
               onChange={(e) => setQueryInput(e.target.value)}
+              onFocus={() => setIsSearchFocused(true)}
+              onBlur={() => setIsSearchFocused(false)}
               onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  applySearch();
+                  return;
+                }
                 if (e.key === "Escape") {
                   e.preventDefault();
-                  setQueryInput("");
-                  setActiveQuery(undefined);
-                  setSelectedCell(null);
-                  setSelectedColumnId(null);
-                  pendingSelRef.current = null;
-                  parentRef.current?.scrollTo({ top: 0 });
+                  clearSearch();
                 }
               }}
             />
 
+            <button
+              type="button"
+              className="rounded-md bg-white/20 px-3 py-2 font-semibold hover:bg-white/30"
+              onClick={applySearch}
+            >
+              Search
+            </button>
+
             {isFetching && <span className="text-sm text-white/60">Searching…</span>}
 
-            {!!activeQuery && (
+            {(!!activeQuery || queryInput.length > 0) && (
               <button
                 type="button"
                 className="rounded-md px-3 py-2 text-white/70 hover:text-white"
-                onClick={() => {
-                  setQueryInput("");
-                  setActiveQuery(undefined);
-                  setSelectedCell(null);
-                  setSelectedColumnId(null);
-                  pendingSelRef.current = null;
-                  parentRef.current?.scrollTo({ top: 0 });
-                }}
+                onClick={clearSearch}
               >
                 Clear
               </button>
@@ -1039,10 +1057,7 @@ export function TableGrid({ baseId, tableId }: Props) {
 
       {addErr && <div className="mb-3 text-red-300">Add rows failed: {addErr}</div>}
 
-      <div
-        ref={parentRef}
-        className="h-[70vh] overflow-auto rounded-md border border-white/10"
-      >
+      <div ref={parentRef} className="h-[70vh] overflow-auto rounded-md border border-white/10">
         {!!activeQuery && !isFetching && displayData.length === 0 && (
           <div className="p-6 text-center text-white/60">
             No results for <span className="text-white">“{activeQuery}”</span>
@@ -1050,9 +1065,7 @@ export function TableGrid({ baseId, tableId }: Props) {
         )}
 
         {visibleLeafCols.length === 0 ? (
-          <div className="p-6 text-center text-white/60">
-            All columns are hidden in this view.
-          </div>
+          <div className="p-6 text-center text-white/60">All columns are hidden in this view.</div>
         ) : (
           <DndContext sensors={sensors} onDragEnd={onDragEnd}>
             <SortableContext items={visibleColIds} strategy={horizontalListSortingStrategy}>
