@@ -1,6 +1,54 @@
-@import "tailwindcss";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
-@theme {
-  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif,
-    "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+/* Your custom styles */
+.scrollbar-light {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(203 213 225) rgb(241 245 249);
+}
+
+.scrollbar-light::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+.scrollbar-light::-webkit-scrollbar-track {
+  background: rgb(241 245 249);
+  border-radius: 6px;
+}
+
+.scrollbar-light::-webkit-scrollbar-thumb {
+  background: rgb(203 213 225);
+  border-radius: 6px;
+  border: 2px solid rgb(241 245 249);
+}
+
+.scrollbar-light::-webkit-scrollbar-thumb:hover {
+  background: rgb(148 163 184);
+}
+
+.scrollbar-dark {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(55 65 81) rgb(17 24 39);
+}
+
+.scrollbar-dark::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+.scrollbar-dark::-webkit-scrollbar-track {
+  background: rgb(17 24 39);
+  border-radius: 6px;
+}
+
+.scrollbar-dark::-webkit-scrollbar-thumb {
+  background: rgb(55 65 81);
+  border-radius: 6px;
+  border: 2px solid rgb(17 24 39);
+}
+
+.scrollbar-dark::-webkit-scrollbar-thumb:hover {
+  background: rgb(75 85 99);
 }
