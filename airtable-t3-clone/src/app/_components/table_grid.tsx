@@ -1054,7 +1054,7 @@ export function TableGrid({ baseId, tableId }: Props) {
       >
         {!!activeQuery && !isFetching && displayData.length === 0 && (
           <div className="p-6 text-center text-gray-600 dark:text-gray-400">
-            No results for <span className="font-semibold text-gray-900 dark:text-white">"{activeQuery}"</span>
+            No results for <span className="font-semibold text-gray-900 dark:text-white">{activeQuery}</span>
           </div>
         )}
 
