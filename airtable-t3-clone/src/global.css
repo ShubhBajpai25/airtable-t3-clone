@@ -1,10 +1,6 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
-@variant dark (.dark &);
-
-/* Custom scrollbar styles */
+/* Your custom styles */
 .scrollbar-light {
   scrollbar-width: thin;
   scrollbar-color: rgb(203 213 225) rgb(241 245 249);
