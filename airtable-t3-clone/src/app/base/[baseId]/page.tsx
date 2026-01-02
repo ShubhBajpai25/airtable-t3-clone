@@ -28,7 +28,7 @@ function ActionCard({
 export default async function BaseOverviewPage({
   params,
 }: {
-  params: { baseId: string };
+  params: Promise<{ baseId: string }>;
 }) {
   const session = await getServerAuthSession();
   if (!session) redirect("/api/auth/signin");
