@@ -23,7 +23,7 @@ export function TableList({ baseId }: { baseId: string }) {
   return (
     <div className="w-full rounded-xl bg-white/10 p-4">
       <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-2xl font-bold">Tables in this base</h2>
+        <h2 className="text-2xl font-bold">Current Tables</h2>
       </div>
 
       <div className="mb-4 flex gap-2">
