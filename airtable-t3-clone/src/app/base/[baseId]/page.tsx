@@ -38,7 +38,7 @@ export default async function BaseOverviewPage({
     avatarUrl: session.user?.image ?? undefined,
   };
 
-  const baseId = params.baseId;
+  const { baseId } = await params;
 
   // IMPORTANT: sanitize to avoid Date serialization into client components
   const basesRaw = await api.base.list();
