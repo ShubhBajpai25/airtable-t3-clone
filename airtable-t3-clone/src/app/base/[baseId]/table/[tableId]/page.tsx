@@ -10,6 +10,15 @@ export default async function TablePage({
   params: Promise<{ baseId: string; tableId: string }>; // ✅ Now a Promise
 }) {
   const session = await getServerAuthSession();
+
+  if (!session) {
+    redirect("/api/auth/signin");
+  }
+
+  const currentUser = {
+    name: session.user?.name ?? "User",
+    avatarUrl: session.user?.image ?? undefined,
+  };
   
   if (!session) {
     redirect("/api/auth/signin");
@@ -26,6 +35,7 @@ export default async function TablePage({
       tables={tables}
       currentBaseId={baseId}
       currentTableId={tableId}
+      currentUser={currentUser}
     >
       <div className="h-full bg-gray-50 dark:bg-gray-950">
         <div className="border-b bg-white px-6 py-4 dark:bg-gray-900 dark:border-gray-800">

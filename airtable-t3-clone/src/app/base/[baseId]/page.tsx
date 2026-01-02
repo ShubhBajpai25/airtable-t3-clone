@@ -4,6 +4,7 @@ import { api } from "~/trpc/server";
 import { getServerAuthSession } from "~/server/auth";
 import { redirect } from "next/navigation";
 
+
 export default async function BasePage({
   params,
 }: {
@@ -20,11 +21,17 @@ export default async function BasePage({
   const bases = await api.base.list();
   const tables = await api.table.list({ baseId });
 
+  const currentUser = {
+    name: session.user?.name ?? "User",
+    avatarUrl: session.user?.image ?? undefined,
+  };
+
   return (
     <AppLayout 
       bases={bases} 
       tables={tables}
       currentBaseId={baseId}
+      currentUser={currentUser}
     >
       <TableList baseId={baseId} />
     </AppLayout>
