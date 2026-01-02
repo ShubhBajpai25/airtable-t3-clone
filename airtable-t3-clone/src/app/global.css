@@ -1,4 +1,6 @@
-/* Remove ALL @tailwind directives - using CDN instead */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
 /* Custom scrollbar styles */
 .scrollbar-light {
