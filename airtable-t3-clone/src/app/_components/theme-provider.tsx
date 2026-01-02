@@ -13,62 +13,36 @@ type ThemeContextType = {
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>('light');
-  const [mounted, setMounted] = useState(false);
-
-  // Load theme from localStorage on mount
-  useEffect(() => {
-    setMounted(true);
-    
-    try {
-      const stored = localStorage.getItem('theme') as Theme | null;
-      if (stored === 'dark' || stored === 'light') {
-        setThemeState(stored);
-      } else {
-        // Check system preference
-        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-        setThemeState(prefersDark ? 'dark' : 'light');
-      }
-    } catch (error) {
-      // If localStorage fails, use system preference
-      console.warn('localStorage not available:', error);
-      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      setThemeState(prefersDark ? 'dark' : 'light');
+  const [theme, setThemeState] = useState<Theme>(() => {
+    // Read from document on initial render to match the script
+    if (typeof window !== 'undefined') {
+      return document.documentElement.classList.contains('dark') ? 'dark' : 'light';
     }
-  }, []);
+    return 'light';
+  });
 
-  // Apply theme to document
+  // Sync with localStorage and apply theme changes
   useEffect(() => {
-    if (!mounted) return;
-
     const root = document.documentElement;
     
-    // Remove both classes first
-    root.classList.remove('light', 'dark');
+    if (theme === 'dark') {
+      root.classList.add('dark');
+    } else {
+      root.classList.remove('dark');
+    }
     
-    // Add the current theme class
-    root.classList.add(theme);
-    
-    // Save to localStorage (with error handling)
     try {
       localStorage.setItem('theme', theme);
     } catch (error) {
       console.warn('Could not save theme to localStorage:', error);
     }
-    
-    console.log('Theme applied:', theme, 'Classes on html:', root.className);
-  }, [theme, mounted]);
+  }, [theme]);
 
   const toggleTheme = () => {
-    setThemeState(prev => {
-      const next = prev === 'dark' ? 'light' : 'dark';
-      console.log('Toggling theme from', prev, 'to', next);
-      return next;
-    });
+    setThemeState(prev => prev === 'dark' ? 'light' : 'dark');
   };
 
   const setTheme = (newTheme: Theme) => {
-    console.log('Setting theme to:', newTheme);
     setThemeState(newTheme);
   };
 
