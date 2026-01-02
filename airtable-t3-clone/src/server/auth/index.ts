@@ -5,6 +5,12 @@ import { authConfig } from "./config";
 
 const { auth: uncachedAuth, handlers, signIn, signOut } = NextAuth(authConfig);
 
-const auth = cache(uncachedAuth);
+// NextAuth v5 server helper (cached per-request)
+export const auth = cache(uncachedAuth);
 
-export { auth, handlers, signIn, signOut };
+// “Legacy-style” helper name
+export const getServerAuthSession = cache(async () => {
+  return await auth();
+});
+
+export { handlers, signIn, signOut };
