@@ -2,6 +2,8 @@
 @tailwind components;
 @tailwind utilities;
 
+@variant dark (.dark &);
+
 /* Custom scrollbar styles */
 .scrollbar-light {
   scrollbar-width: thin;
