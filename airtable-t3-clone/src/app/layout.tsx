@@ -16,24 +16,6 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${GeistSans.variable}`} suppressHydrationWarning>
       <head>
-        <script src="https://cdn.tailwindcss.com"></script>
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `
-              tailwind.config = {
-                darkMode: 'class',
-                theme: {
-                  extend: {
-                    boxShadow: {
-                      'airtable': '0 2px 8px rgba(0,0,0,0.1)',
-                      'airtable-hover': '0 4px 12px rgba(0,0,0,0.15)',
-                    },
-                  }
-                }
-              }
-            `,
-          }}
-        />
       </head>
       <body>
         <TRPCReactProvider>
