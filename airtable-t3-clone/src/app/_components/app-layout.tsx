@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useTheme } from './theme-provider';
@@ -168,6 +168,8 @@ export function AppLayout({
   currentBaseId, 
   currentTableId 
 }: AppLayoutProps) {
+  const { theme, toggleTheme } = useTheme();
+  
   return (
     <div className="flex h-screen overflow-hidden bg-white dark:bg-gray-950">
       <Sidebar
@@ -176,8 +178,22 @@ export function AppLayout({
         currentBaseId={currentBaseId}
         currentTableId={currentTableId}
       />
-      <main className="flex-1 overflow-auto">
+      <main className="relative flex-1 overflow-auto">
         {children}
+        
+        {/* Floating Theme Toggle Button */}
+        <button
+          onClick={toggleTheme}
+          className="fixed bottom-6 right-6 z-50 flex h-12 w-12 items-center justify-center rounded-full border-2 border-gray-300 bg-white shadow-lg transition-all hover:scale-110 hover:shadow-xl dark:border-gray-700 dark:bg-gray-800"
+          title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+          aria-label="Toggle theme"
+        >
+          {theme === 'dark' ? (
+            <span className="text-2xl">☀️</span>
+          ) : (
+            <span className="text-2xl">🌙</span>
+          )}
+        </button>
       </main>
     </div>
   );
