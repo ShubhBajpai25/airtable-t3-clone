@@ -1,4 +1,4 @@
-'use client';
+"use client";
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
 
@@ -7,42 +7,74 @@ type Theme = 'light' | 'dark';
 type ThemeContextType = {
   theme: Theme;
   toggleTheme: () => void;
+  setTheme: (theme: Theme) => void;
 };
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setTheme] = useState<Theme>('dark');
+  const [theme, setThemeState] = useState<Theme>('light');
   const [mounted, setMounted] = useState(false);
 
+  // Load theme from localStorage on mount
   useEffect(() => {
     setMounted(true);
-    const stored = localStorage.getItem('theme') as Theme | null;
-    if (stored) {
-      setTheme(stored);
-    } else {
+    
+    try {
+      const stored = localStorage.getItem('theme') as Theme | null;
+      if (stored === 'dark' || stored === 'light') {
+        setThemeState(stored);
+      } else {
+        // Check system preference
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        setThemeState(prefersDark ? 'dark' : 'light');
+      }
+    } catch (error) {
+      // If localStorage fails, use system preference
+      console.warn('localStorage not available:', error);
       const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      setTheme(prefersDark ? 'dark' : 'light');
+      setThemeState(prefersDark ? 'dark' : 'light');
     }
   }, []);
 
+  // Apply theme to document
   useEffect(() => {
     if (!mounted) return;
-    
+
     const root = document.documentElement;
+    
+    // Remove both classes first
     root.classList.remove('light', 'dark');
+    
+    // Add the current theme class
     root.classList.add(theme);
-    localStorage.setItem('theme', theme);
+    
+    // Save to localStorage (with error handling)
+    try {
+      localStorage.setItem('theme', theme);
+    } catch (error) {
+      console.warn('Could not save theme to localStorage:', error);
+    }
+    
+    console.log('Theme applied:', theme, 'Classes on html:', root.className);
   }, [theme, mounted]);
 
   const toggleTheme = () => {
-    setTheme(prev => prev === 'dark' ? 'light' : 'dark');
+    setThemeState(prev => {
+      const next = prev === 'dark' ? 'light' : 'dark';
+      console.log('Toggling theme from', prev, 'to', next);
+      return next;
+    });
   };
 
-  if (!mounted) return null;
+  const setTheme = (newTheme: Theme) => {
+    console.log('Setting theme to:', newTheme);
+    setThemeState(newTheme);
+  };
 
+  // Don't hide content, just use the initial theme
   return (
-    <ThemeContext.Provider value={{ theme, toggleTheme }}>
+    <ThemeContext.Provider value={{ theme, toggleTheme, setTheme }}>
       {children}
     </ThemeContext.Provider>
   );
@@ -50,8 +82,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
 export function useTheme() {
   const context = useContext(ThemeContext);
-  if (!context) {
-    throw new Error('useTheme must be used within ThemeProvider');
+  if (context === undefined) {
+    throw new Error('useTheme must be used within a ThemeProvider');
   }
   return context;
 }
