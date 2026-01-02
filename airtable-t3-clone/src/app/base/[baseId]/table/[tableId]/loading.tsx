@@ -1,60 +1,59 @@
-function Skeleton({ className }: { className: string }) {
-  return <div className={`animate-pulse rounded bg-white/10 ${className}`} />;
-}
-
-export default function Loading() {
+export default function TableGridLoading() {
   return (
-    <main className="min-h-screen bg-gradient-to-b from-[#2e026d] to-[#15162c] p-6 text-white">
-      <div className="mx-auto w-full max-w-6xl space-y-4">
-        {/* Top bar */}
-        <div className="flex items-center justify-between">
-          <Skeleton className="h-6 w-40" />
-          <div className="flex gap-2">
-            <Skeleton className="h-9 w-24" />
-            <Skeleton className="h-9 w-28" />
-          </div>
-        </div>
+    <div className="min-h-screen bg-gray-50 p-8 dark:bg-gray-950">
+      <div className="mx-auto w-full max-w-7xl">
+        <div className="rounded-xl border bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+          {/* Header with controls - visible but disabled looking */}
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-4 opacity-50">
+            <div className="text-gray-600 dark:text-gray-400">
+              Rows (DB): <span className="font-semibold text-gray-900 dark:text-white">—</span>
+              <span className="mx-2 text-gray-300 dark:text-gray-700">•</span>
+              Loaded: <span className="font-semibold text-gray-900 dark:text-white">—</span>
+            </div>
 
-        {/* Toolbar */}
-        <div className="flex items-center gap-2 rounded-xl bg-white/10 p-3">
-          <Skeleton className="h-8 w-24" />
-          <Skeleton className="h-8 w-24" />
-          <Skeleton className="h-8 w-24" />
-          <div className="ml-auto flex gap-2">
-            <Skeleton className="h-8 w-56" />
-            <Skeleton className="h-8 w-24" />
-          </div>
-        </div>
+            <div className="flex items-center gap-2">
+              <select className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-white" disabled>
+                <option>Loading...</option>
+              </select>
+            </div>
 
-        {/* Grid container */}
-        <div className="overflow-hidden rounded-xl bg-white/10">
-          {/* Column headers */}
-          <div className="grid grid-cols-12 gap-2 border-b border-white/10 bg-white/5 px-3 py-2">
-            <Skeleton className="col-span-3 h-6" />
-            <Skeleton className="col-span-3 h-6" />
-            <Skeleton className="col-span-2 h-6" />
-            <Skeleton className="col-span-2 h-6" />
-            <Skeleton className="col-span-2 h-6" />
+            <div className="flex flex-wrap items-center gap-2">
+              <button className="cursor-not-allowed rounded-lg border border-gray-300 bg-white px-4 py-2 font-semibold text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200" disabled>
+                + Column
+              </button>
+              <button className="cursor-not-allowed rounded-lg border border-gray-300 bg-white px-4 py-2 font-semibold text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200" disabled>
+                Add 100k rows
+              </button>
+              <button className="cursor-not-allowed rounded-lg border border-gray-300 bg-white px-4 py-2 font-semibold text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200" disabled>
+                Delete column
+              </button>
+              <input
+                className="w-64 cursor-not-allowed rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                placeholder="Search all cells…"
+                disabled
+              />
+              <button className="cursor-not-allowed rounded-lg bg-blue-600 px-3 py-2 font-semibold text-white" disabled>
+                Search
+              </button>
+            </div>
           </div>
 
-          {/* Rows */}
-          <div className="divide-y divide-white/10">
-            {Array.from({ length: 12 }).map((_, i) => (
-              <div key={i} className="grid grid-cols-12 gap-2 px-3 py-2">
-                <Skeleton className="col-span-3 h-6" />
-                <Skeleton className="col-span-3 h-6" />
-                <Skeleton className="col-span-2 h-6" />
-                <Skeleton className="col-span-2 h-6" />
-                <Skeleton className="col-span-2 h-6" />
+          {/* Blank loading area */}
+          <div className="relative flex h-[70vh] items-center justify-center overflow-hidden rounded-lg border border-gray-200 bg-gray-50 dark:border-gray-800 dark:bg-gray-950">
+            {/* Animated loading indicator */}
+            <div className="flex flex-col items-center gap-4">
+              <div className="flex gap-2">
+                <div className="h-3 w-3 animate-bounce rounded-full bg-blue-600 [animation-delay:-0.3s]"></div>
+                <div className="h-3 w-3 animate-bounce rounded-full bg-blue-600 [animation-delay:-0.15s]"></div>
+                <div className="h-3 w-3 animate-bounce rounded-full bg-blue-600"></div>
               </div>
-            ))}
+              <p className="text-lg font-medium text-gray-600 dark:text-gray-400">
+                Loading table data...
+              </p>
+            </div>
           </div>
         </div>
-
-        <p className="text-sm text-white/60">
-          Loading table… (this will become the virtualized grid)
-        </p>
       </div>
-    </main>
+    </div>
   );
 }
