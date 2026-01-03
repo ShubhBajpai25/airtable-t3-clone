@@ -7,7 +7,15 @@ import { api } from "~/trpc/react";
 
 type Base = { id: string; name: string };
 type Table = { id: string; name: string };
-type View = { id: string; name: string; type: "GRID" | "GALLERY" };
+
+// Updated View type to match API response
+type View = { 
+  id: string; 
+  name: string; 
+  type: "GRID" | "GALLERY";
+  createdAt: Date;
+  updatedAt: Date;
+};
 
 type TableGridWrapperProps = {
   bases: Base[];
@@ -34,15 +42,13 @@ export function TableGridWrapper({
   // Keep views in sync with server
   const viewsQuery = api.view.list.useQuery(
     { baseId: currentBaseId, tableId: currentTableId },
-    { initialData: initialViews }
+    { 
+      initialData: initialViews as typeof viewsQuery.data 
+    }
   );
 
-  const createViewMutation = api.view.create.useMutation({
-    onSuccess: async () => {
-      // Refetch views after creation
-      await viewsQuery.refetch();
-    },
-  });
+  const createViewMutation = api.view.create.useMutation();
+  const updateConfigMutation = api.view.updateConfig.useMutation();
 
   return (
     <AppLayout
@@ -72,18 +78,42 @@ export function TableGridWrapper({
             baseId={currentBaseId}
             tableId={currentTableId}
             viewModalTrigger={viewModalTrigger}
-            onViewCreated={(config) => {
-              createViewMutation.mutate({
-                baseId: currentBaseId,
-                tableId: currentTableId,
-                name: config.name,
-                type: "GRID",
-                config: {
-                  sortColumn: config.sortColumn,
-                  sortDirection: config.sortDirection,
+            onViewCreated={async (config) => {
+              try {
+                // Step 1: Create the view with just the name
+                const newView = await createViewMutation.mutateAsync({
+                  baseId: currentBaseId,
+                  tableId: currentTableId,
+                  name: config.name,
+                });
+
+                // Step 2: Update the view config with sort and hidden columns
+                const configPatch: {
+                  hiddenColumnIds: string[];
+                  sort?: { columnId: string; direction: "asc" | "desc" };
+                } = {
                   hiddenColumnIds: config.hiddenColumns,
-                },
-              });
+                };
+
+                if (config.sortColumn) {
+                  configPatch.sort = {
+                    columnId: config.sortColumn,
+                    direction: config.sortDirection === "ASC" ? "asc" : "desc",
+                  };
+                }
+
+                await updateConfigMutation.mutateAsync({
+                  baseId: currentBaseId,
+                  tableId: currentTableId,
+                  viewId: newView.id,
+                  patch: configPatch,
+                });
+
+                // Refetch views to show the new one
+                await viewsQuery.refetch();
+              } catch (error) {
+                console.error("Failed to create view:", error);
+              }
             }}
           />
         </div>
