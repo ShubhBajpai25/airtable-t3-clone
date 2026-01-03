@@ -6,7 +6,6 @@ import { flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-tabl
 import type { ColumnDef, VisibilityState } from "@tanstack/react-table";
 
 import { api } from "~/trpc/react";
-import { ViewControls, type ViewConfig } from "./view_controls";
 
 import { DndContext, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
 import type { DragEndEvent } from "@dnd-kit/core";
@@ -18,7 +17,12 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 
-type Props = { baseId: string; tableId: string };
+type Props = { 
+  baseId: string; 
+  tableId: string;
+  showViewModal?: boolean;
+  onCloseViewModal?: () => void;
+};
 
 const COL_WIDTH = 200;
 const ROW_HEIGHT = 36;
@@ -78,6 +82,190 @@ function ToolbarButton({
     >
       {children}
     </button>
+  );
+}
+
+// View Configuration Modal
+function ViewConfigModal({
+  isOpen,
+  onClose,
+  columns,
+  onCreateView,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  columns: Array<{ id: string; name: string; type: "TEXT" | "NUMBER" }>;
+  onCreateView: (config: {
+    name: string;
+    sortColumn?: string;
+    sortDirection?: "ASC" | "DESC";
+    hiddenColumns: string[];
+  }) => void;
+}) {
+  const [viewName, setViewName] = React.useState("Grid view");
+  const [sortColumn, setSortColumn] = React.useState<string>("");
+  const [sortDirection, setSortDirection] = React.useState<"ASC" | "DESC">("ASC");
+  const [hiddenColumns, setHiddenColumns] = React.useState<Set<string>>(new Set());
+
+  React.useEffect(() => {
+    if (isOpen) {
+      setViewName("Grid view");
+      setSortColumn("");
+      setSortDirection("ASC");
+      setHiddenColumns(new Set());
+    }
+  }, [isOpen]);
+
+  if (!isOpen) return null;
+
+  const handleApply = () => {
+    onCreateView({
+      name: viewName,
+      sortColumn: sortColumn || undefined,
+      sortDirection: sortColumn ? sortDirection : undefined,
+      hiddenColumns: Array.from(hiddenColumns),
+    });
+    onClose();
+  };
+
+  const handleReset = () => {
+    setSortColumn("");
+    setSortDirection("ASC");
+    setHiddenColumns(new Set());
+  };
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div
+        className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
+        onClick={onClose}
+      />
+
+      {/* Modal */}
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="w-full max-w-4xl rounded-2xl bg-gray-900 text-white shadow-2xl">
+          {/* Header */}
+          <div className="flex items-center justify-between border-b border-gray-800 px-6 py-4">
+            <div className="flex items-center gap-4">
+              <div>
+                <div className="text-sm text-gray-400">View</div>
+                <div className="flex items-center gap-3">
+                  <input
+                    value={viewName}
+                    onChange={(e) => setViewName(e.target.value)}
+                    className="bg-transparent text-2xl font-bold outline-none border-b-2 border-transparent hover:border-gray-700 focus:border-blue-500"
+                  />
+                  <button className="rounded-lg border border-gray-700 px-4 py-1.5 text-sm font-medium hover:bg-gray-800">
+                    Rename
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <button
+              onClick={onClose}
+              className="rounded-lg px-4 py-2 text-gray-400 hover:bg-gray-800 hover:text-white"
+            >
+              Close
+            </button>
+          </div>
+
+          {/* Content */}
+          <div className="grid grid-cols-2 gap-6 p-6">
+            {/* Sort Section */}
+            <div className="rounded-xl bg-gray-800/50 p-6">
+              <h3 className="mb-4 text-lg font-semibold">Sort</h3>
+              <div className="flex gap-3">
+                <select
+                  value={sortColumn}
+                  onChange={(e) => setSortColumn(e.target.value)}
+                  className="flex-1 rounded-lg border border-gray-700 bg-gray-800 px-4 py-2 text-sm outline-none focus:border-blue-500"
+                >
+                  <option value="">(No sort)</option>
+                  {columns.map((col) => (
+                    <option key={col.id} value={col.id}>
+                      {col.name}
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  value={sortDirection}
+                  onChange={(e) => setSortDirection(e.target.value as "ASC" | "DESC")}
+                  disabled={!sortColumn}
+                  className="rounded-lg border border-gray-700 bg-gray-800 px-4 py-2 text-sm outline-none focus:border-blue-500 disabled:opacity-50"
+                >
+                  <option value="ASC">Asc</option>
+                  <option value="DESC">Desc</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Hidden Columns Section */}
+            <div className="rounded-xl bg-gray-800/50 p-6">
+              <h3 className="mb-4 text-lg font-semibold">Hidden columns</h3>
+              <div className="space-y-2 max-h-32 overflow-y-auto">
+                {columns.map((col) => (
+                  <label
+                    key={col.id}
+                    className="flex items-center gap-3 cursor-pointer hover:bg-gray-700/50 rounded-lg px-3 py-2"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={hiddenColumns.has(col.id)}
+                      onChange={(e) => {
+                        const next = new Set(hiddenColumns);
+                        if (e.target.checked) {
+                          next.add(col.id);
+                        } else {
+                          next.delete(col.id);
+                        }
+                        setHiddenColumns(next);
+                      }}
+                      className="h-4 w-4 rounded border-gray-600 bg-gray-700"
+                    />
+                    <span className="text-sm">
+                      {col.name} <span className="text-gray-500">({col.type})</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Filters Section */}
+          <div className="mx-6 mb-6 rounded-xl bg-gray-800/50 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold">Filters</h3>
+              <button className="rounded-lg border border-gray-700 px-4 py-2 text-sm font-medium hover:bg-gray-800">
+                + Filter
+              </button>
+            </div>
+            <p className="text-sm text-gray-500">No filters.</p>
+          </div>
+
+          {/* Footer */}
+          <div className="flex items-center justify-between border-t border-gray-800 px-6 py-4">
+            <p className="text-sm text-gray-400">Edits are applied when you click Apply.</p>
+            <div className="flex gap-3">
+              <button
+                onClick={handleReset}
+                className="rounded-lg border border-gray-700 px-6 py-2 font-medium hover:bg-gray-800"
+              >
+                Reset
+              </button>
+              <button
+                onClick={handleApply}
+                className="rounded-lg bg-blue-600 px-6 py-2 font-medium hover:bg-blue-700"
+              >
+                Apply
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -311,7 +499,7 @@ function EditableCell(props: {
   );
 }
 
-export function TableGrid({ baseId, tableId }: Props) {
+export function TableGrid({ baseId, tableId, showViewModal, onCloseViewModal }: Props) {
   const PAGE_SIZE = 100;
   const ADD_TOTAL = 100_000;
   const CHUNK_SIZE = 5_000;
@@ -358,32 +546,15 @@ export function TableGrid({ baseId, tableId }: Props) {
 
   const meta = api.table.getMeta.useQuery({ baseId, tableId });
 
-  const viewsQ = api.view.list.useQuery({ baseId, tableId });
-  const [viewId, setViewId] = React.useState<string | undefined>(undefined);
-
-  React.useEffect(() => {
-    if (!viewId && viewsQ.data?.length) setViewId(viewsQ.data[0]!.id);
-  }, [viewId, viewsQ.data]);
-
-  const viewGetQ = api.view.get.useQuery(
-    { baseId, tableId, viewId: viewId ?? "" },
-    { enabled: !!viewId },
-  );
-
   const rowsKey = React.useMemo(
     () => ({
       baseId,
       tableId,
-      ...(viewId ? { viewId } : {}),
       limit: PAGE_SIZE,
       q: activeQuery?.trim() ? activeQuery.trim() : undefined,
     }),
-    [baseId, tableId, viewId, activeQuery],
+    [baseId, tableId, activeQuery],
   );
-
-  const invalidateRows = React.useCallback(async () => {
-    await utils.table.rowsInfinite.invalidate(rowsKey);
-  }, [utils.table.rowsInfinite, rowsKey]);
 
   const rowsQ = api.table.rowsInfinite.useInfiniteQuery(rowsKey, {
     getNextPageParam: (last) => last.nextCursor ?? undefined,
@@ -403,18 +574,11 @@ export function TableGrid({ baseId, tableId }: Props) {
   const allCols = React.useMemo(() => meta.data?.columns ?? [], [meta.data?.columns]);
   const allColIds = React.useMemo(() => allCols.map((c) => c.id), [allCols]);
 
-  const hiddenColumnIds = React.useMemo(() => {
-    const cfg = viewGetQ.data?.config as ViewConfig | undefined;
-    return cfg?.hiddenColumnIds ?? EMPTY_STR_ARR;
-  }, [viewGetQ.data]);
-
-  const hiddenSet = React.useMemo(() => new Set(hiddenColumnIds), [hiddenColumnIds]);
-
   const columnVisibility = React.useMemo<VisibilityState>(() => {
     const v: VisibilityState = {};
-    for (const c of allCols) v[c.id] = !hiddenSet.has(c.id);
+    for (const c of allCols) v[c.id] = true;
     return v;
-  }, [allCols, hiddenSet]);
+  }, [allCols]);
 
   const colById = React.useMemo(() => {
     const m = new Map<string, (typeof allCols)[number]>();
@@ -461,11 +625,6 @@ export function TableGrid({ baseId, tableId }: Props) {
     const order = columnOrder.length ? columnOrder : allColIds;
     return order.filter((id) => columnVisibility[id] !== false);
   }, [columnOrder, allColIds, columnVisibility]);
-
-  React.useEffect(() => {
-    if (selectedColumnId && columnVisibility[selectedColumnId] === false) setSelectedColumnId(null);
-    if (selectedCell && columnVisibility[selectedCell.colId] === false) setSelectedCell(null);
-  }, [columnVisibility, selectedColumnId, selectedCell]);
 
   const rowVirtualizer = useVirtualizer({
     count: displayData.length,
@@ -923,275 +1082,264 @@ export function TableGrid({ baseId, tableId }: Props) {
   }
 
   return (
-    <div className="flex h-full flex-col bg-white dark:bg-gray-900">
-      {/* Airtable-style Toolbar */}
-      <div className="flex items-center justify-between border-b border-gray-200 bg-white px-4 py-2 dark:border-gray-800 dark:bg-gray-900">
-        <div className="flex items-center gap-2">
-          <ToolbarButton>
-            <FieldsIcon />
-            <span>Fields</span>
-          </ToolbarButton>
-          <ToolbarButton>
-            <FilterIcon />
-            <span>Filter</span>
-          </ToolbarButton>
-          <ToolbarButton>
-            <GroupIcon />
-            <span>Group</span>
-          </ToolbarButton>
-          <ToolbarButton>
-            <SortIcon />
-            <span>Sort</span>
-          </ToolbarButton>
-          <ToolbarButton>
-            <ColourIcon />
-            <span>Colour</span>
-          </ToolbarButton>
+    <>
+      <ViewConfigModal
+        isOpen={showViewModal ?? false}
+        onClose={() => onCloseViewModal?.()}
+        columns={allCols}
+        onCreateView={(config) => {
+          console.log("Creating view with config:", config);
+          // You'll implement the actual view creation mutation here
+          onCloseViewModal?.();
+        }}
+      />
 
-          <div className="mx-2 h-6 w-px bg-gray-200 dark:bg-gray-700" />
-
-          <ViewControls
-            baseId={baseId}
-            tableId={tableId}
-            views={(viewsQ.data ?? []).map((v) => ({ id: v.id, name: v.name }))}
-            viewsLoading={viewsQ.isLoading}
-            viewId={viewId}
-            onSelectView={(next) => setViewId(next)}
-            onChangedView={() => {
-              setSelectedCell(null);
-              setSelectedColumnId(null);
-              pendingSelRef.current = null;
-              parentRef.current?.scrollTo({ top: 0 });
-            }}
-            currentConfig={(viewGetQ.data?.config as ViewConfig | undefined) ?? undefined}
-            configLoading={viewGetQ.isLoading}
-            columns={allCols}
-            onConfigSaved={() => {
-              void invalidateRows();
-              parentRef.current?.scrollTo({ top: 0 });
-            }}
-          />
-        </div>
-
-        <div className="flex items-center gap-2">
-          {/* Search */}
+      <div className="flex h-full flex-col bg-white dark:bg-gray-900">
+        {/* Airtable-style Toolbar */}
+        <div className="flex items-center justify-between border-b border-gray-200 bg-white px-4 py-2 dark:border-gray-800 dark:bg-gray-900">
           <div className="flex items-center gap-2">
-            <input
-              ref={searchRef}
-              className="w-48 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-              placeholder="Search..."
-              value={queryInput}
-              onChange={(e) => setQueryInput(e.target.value)}
-              onFocus={() => setIsSearchFocused(true)}
-              onBlur={() => setIsSearchFocused(false)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  applySearch();
-                }
-                if (e.key === "Escape") {
-                  e.preventDefault();
-                  clearSearch();
-                }
-              }}
-            />
-
-            {isFetching && (
-              <span className="text-xs text-gray-500 dark:text-gray-400">Searching…</span>
-            )}
-
-            {(!!activeQuery || queryInput.length > 0) && (
-              <button
-                type="button"
-                className="rounded px-2 py-1 text-xs text-gray-700 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
-                onClick={clearSearch}
-              >
-                Clear
-              </button>
-            )}
+            <ToolbarButton>
+              <FieldsIcon />
+              <span>Fields</span>
+            </ToolbarButton>
+            <ToolbarButton>
+              <FilterIcon />
+              <span>Filter</span>
+            </ToolbarButton>
+            <ToolbarButton>
+              <GroupIcon />
+              <span>Group</span>
+            </ToolbarButton>
+            <ToolbarButton>
+              <SortIcon />
+              <span>Sort</span>
+            </ToolbarButton>
+            <ToolbarButton>
+              <ColourIcon />
+              <span>Colour</span>
+            </ToolbarButton>
           </div>
 
-          <ToolbarButton>
-            <MoreIcon />
-          </ToolbarButton>
-        </div>
-      </div>
-
-      {/* Column Management Bar */}
-      <div className="flex items-center gap-3 border-b border-gray-200 bg-gray-50 px-4 py-2 text-sm dark:border-gray-800 dark:bg-gray-900/50">
-        <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
-          <span>Rows: <span className="font-medium text-gray-900 dark:text-white">{totalRowCount}</span></span>
-          <span className="text-gray-300 dark:text-gray-700">•</span>
-          <span>Loaded: <span className="font-medium text-gray-900 dark:text-white">{loadedRowCount}</span></span>
-          {addProgress > 0 && (
-            <>
-              <span className="text-gray-300 dark:text-gray-700">•</span>
-              <span>Added: <span className="font-medium text-gray-900 dark:text-white">{addProgress}</span></span>
-            </>
-          )}
-        </div>
-
-        <div className="ml-auto flex items-center gap-2">
-          {!addingCol ? (
-            <>
-              <button
-                className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
-                onClick={() => setAddingCol(true)}
-              >
-                + Add field
-              </button>
-              <button
-                className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
-                disabled={addRowsMut.isPending}
-                onClick={handleAdd100k}
-              >
-                {addRowsMut.isPending ? "Adding…" : "Add 100k rows"}
-              </button>
-              <button
-                className="rounded-lg border border-red-300 bg-white px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50 dark:border-red-700 dark:bg-gray-800 dark:text-red-400 dark:hover:bg-red-900/20"
-                disabled={!selectedColumnId || deleteColMut.isPending}
-                onClick={() => {
-                  if (!selectedColumnId) return;
-                  deleteColMut.mutate({ baseId, tableId, columnId: selectedColumnId });
-                }}
-              >
-                Delete field
-              </button>
-            </>
-          ) : (
+          <div className="flex items-center gap-2">
+            {/* Search */}
             <div className="flex items-center gap-2">
               <input
-                className="w-36 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-                placeholder="Field name"
-                value={newColName}
-                onChange={(e) => setNewColName(e.target.value)}
-              />
-              <select
-                className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-900 outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-                value={newColType}
-                onChange={(e) => setNewColType(e.target.value as "TEXT" | "NUMBER")}
-              >
-                <option value="TEXT">Text</option>
-                <option value="NUMBER">Number</option>
-              </select>
-
-              <button
-                className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-                disabled={addColMut.isPending}
-                onClick={() =>
-                  addColMut.mutate({
-                    baseId,
-                    tableId,
-                    name: newColName.trim() || "Field",
-                    type: newColType,
-                  })
-                }
-              >
-                {addColMut.isPending ? "Adding…" : "Add"}
-              </button>
-
-              <button
-                className="rounded-lg px-3 py-1.5 text-sm text-gray-700 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
-                onClick={() => {
-                  setAddingCol(false);
-                  setNewColName("");
-                  setNewColType("TEXT");
+                ref={searchRef}
+                className="w-48 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                placeholder="Search..."
+                value={queryInput}
+                onChange={(e) => setQueryInput(e.target.value)}
+                onFocus={() => setIsSearchFocused(true)}
+                onBlur={() => setIsSearchFocused(false)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    applySearch();
+                  }
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    clearSearch();
+                  }
                 }}
-              >
-                Cancel
-              </button>
+              />
+
+              {isFetching && (
+                <span className="text-xs text-gray-500 dark:text-gray-400">Searching…</span>
+              )}
+
+              {(!!activeQuery || queryInput.length > 0) && (
+                <button
+                  type="button"
+                  className="rounded px-2 py-1 text-xs text-gray-700 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
+                  onClick={clearSearch}
+                >
+                  Clear
+                </button>
+              )}
             </div>
+
+            <ToolbarButton>
+              <MoreIcon />
+            </ToolbarButton>
+          </div>
+        </div>
+
+        {/* Column Management Bar */}
+        <div className="flex items-center gap-3 border-b border-gray-200 bg-gray-50 px-4 py-2 text-sm dark:border-gray-800 dark:bg-gray-900/50">
+          <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
+            <span>Rows: <span className="font-medium text-gray-900 dark:text-white">{totalRowCount}</span></span>
+            <span className="text-gray-300 dark:text-gray-700">•</span>
+            <span>Loaded: <span className="font-medium text-gray-900 dark:text-white">{loadedRowCount}</span></span>
+            {addProgress > 0 && (
+              <>
+                <span className="text-gray-300 dark:text-gray-700">•</span>
+                <span>Added: <span className="font-medium text-gray-900 dark:text-white">{addProgress}</span></span>
+              </>
+            )}
+          </div>
+
+          <div className="ml-auto flex items-center gap-2">
+            {!addingCol ? (
+              <>
+                <button
+                  className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
+                  onClick={() => setAddingCol(true)}
+                >
+                  + Add field
+                </button>
+                <button
+                  className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
+                  disabled={addRowsMut.isPending}
+                  onClick={handleAdd100k}
+                >
+                  {addRowsMut.isPending ? "Adding…" : "Add 100k rows"}
+                </button>
+                <button
+                  className="rounded-lg border border-red-300 bg-white px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50 dark:border-red-700 dark:bg-gray-800 dark:text-red-400 dark:hover:bg-red-900/20"
+                  disabled={!selectedColumnId || deleteColMut.isPending}
+                  onClick={() => {
+                    if (!selectedColumnId) return;
+                    deleteColMut.mutate({ baseId, tableId, columnId: selectedColumnId });
+                  }}
+                >
+                  Delete field
+                </button>
+              </>
+            ) : (
+              <div className="flex items-center gap-2">
+                <input
+                  className="w-36 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                  placeholder="Field name"
+                  value={newColName}
+                  onChange={(e) => setNewColName(e.target.value)}
+                />
+                <select
+                  className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-900 outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                  value={newColType}
+                  onChange={(e) => setNewColType(e.target.value as "TEXT" | "NUMBER")}
+                >
+                  <option value="TEXT">Text</option>
+                  <option value="NUMBER">Number</option>
+                </select>
+
+                <button
+                  className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                  disabled={addColMut.isPending}
+                  onClick={() =>
+                    addColMut.mutate({
+                      baseId,
+                      tableId,
+                      name: newColName.trim() || "Field",
+                      type: newColType,
+                    })
+                  }
+                >
+                  {addColMut.isPending ? "Adding…" : "Add"}
+                </button>
+
+                <button
+                  className="rounded-lg px-3 py-1.5 text-sm text-gray-700 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
+                  onClick={() => {
+                    setAddingCol(false);
+                    setNewColName("");
+                    setNewColType("TEXT");
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {addErr && (
+          <div className="mx-4 mt-3 rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
+            Add rows failed: {addErr}
+          </div>
+        )}
+
+        {/* Table Container */}
+        <div
+          ref={parentRef}
+          className="scrollbar-light dark:scrollbar-dark flex-1 overflow-auto bg-white dark:bg-gray-900"
+        >
+          {!!activeQuery && !isFetching && displayData.length === 0 && (
+            <div className="p-8 text-center text-gray-600 dark:text-gray-400">
+              No results for <span className="font-semibold text-gray-900 dark:text-white">{activeQuery}</span>
+            </div>
+          )}
+
+          {visibleLeafCols.length === 0 ? (
+            <div className="p-8 text-center text-gray-600 dark:text-gray-400">
+              All columns are hidden in this view.
+            </div>
+          ) : (
+            <DndContext sensors={sensors} onDragEnd={onDragEnd}>
+              <SortableContext items={visibleColIds} strategy={horizontalListSortingStrategy}>
+                <table
+                  className="w-max border-collapse text-gray-900 dark:text-white"
+                  style={{ minWidth: `${visibleLeafCols.length * COL_WIDTH}px` }}
+                >
+                  <thead className="sticky top-0 z-10 bg-gray-50 backdrop-blur dark:bg-gray-800/95">
+                    {headerGroups.map((hg) => (
+                      <tr key={hg.id}>
+                        {hg.headers.map((header) => (
+                          <th
+                            key={header.id}
+                            className="border-b border-r border-gray-200 align-top dark:border-gray-700"
+                            style={{ width: COL_WIDTH, minWidth: COL_WIDTH }}
+                          >
+                            {header.isPlaceholder
+                              ? null
+                              : flexRender(header.column.columnDef.header, header.getContext())}
+                          </th>
+                        ))}
+                      </tr>
+                    ))}
+                  </thead>
+
+                  <tbody>
+                    {paddingTop > 0 && (
+                      <tr>
+                        <td style={{ height: paddingTop }} colSpan={visibleColCount} />
+                      </tr>
+                    )}
+
+                    {virtualRows.map((vRow) => {
+                      const row = tableRows[vRow.index];
+                      if (!row) return null;
+
+                      return (
+                        <tr key={row.id} className="border-b border-gray-100 hover:bg-gray-50/50 dark:border-gray-800 dark:hover:bg-gray-800/30">
+                          {row.getVisibleCells().map((cell) => (
+                            <td
+                              key={cell.id}
+                              className="border-r border-gray-100 align-top dark:border-gray-800"
+                              style={{ width: COL_WIDTH, minWidth: COL_WIDTH }}
+                            >
+                              {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                            </td>
+                          ))}
+                        </tr>
+                      );
+                    })}
+
+                    {paddingBottom > 0 && (
+                      <tr>
+                        <td style={{ height: paddingBottom }} colSpan={visibleColCount} />
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </SortableContext>
+            </DndContext>
+          )}
+
+          {isFetchingNextPage && (
+            <div className="p-4 text-center text-sm text-gray-500 dark:text-gray-400">Loading more rows…</div>
           )}
         </div>
       </div>
-
-      {addErr && (
-        <div className="mx-4 mt-3 rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
-          Add rows failed: {addErr}
-        </div>
-      )}
-
-      {/* Table Container */}
-      <div
-        ref={parentRef}
-        className="scrollbar-light dark:scrollbar-dark flex-1 overflow-auto bg-white dark:bg-gray-900"
-      >
-        {!!activeQuery && !isFetching && displayData.length === 0 && (
-          <div className="p-8 text-center text-gray-600 dark:text-gray-400">
-            No results for <span className="font-semibold text-gray-900 dark:text-white">{activeQuery}</span>
-          </div>
-        )}
-
-        {visibleLeafCols.length === 0 ? (
-          <div className="p-8 text-center text-gray-600 dark:text-gray-400">
-            All columns are hidden in this view.
-          </div>
-        ) : (
-          <DndContext sensors={sensors} onDragEnd={onDragEnd}>
-            <SortableContext items={visibleColIds} strategy={horizontalListSortingStrategy}>
-              <table
-                className="w-max border-collapse text-gray-900 dark:text-white"
-                style={{ minWidth: `${visibleLeafCols.length * COL_WIDTH}px` }}
-              >
-                <thead className="sticky top-0 z-10 bg-gray-50 backdrop-blur dark:bg-gray-800/95">
-                  {headerGroups.map((hg) => (
-                    <tr key={hg.id}>
-                      {hg.headers.map((header) => (
-                        <th
-                          key={header.id}
-                          className="border-b border-r border-gray-200 align-top dark:border-gray-700"
-                          style={{ width: COL_WIDTH, minWidth: COL_WIDTH }}
-                        >
-                          {header.isPlaceholder
-                            ? null
-                            : flexRender(header.column.columnDef.header, header.getContext())}
-                        </th>
-                      ))}
-                    </tr>
-                  ))}
-                </thead>
-
-                <tbody>
-                  {paddingTop > 0 && (
-                    <tr>
-                      <td style={{ height: paddingTop }} colSpan={visibleColCount} />
-                    </tr>
-                  )}
-
-                  {virtualRows.map((vRow) => {
-                    const row = tableRows[vRow.index];
-                    if (!row) return null;
-
-                    return (
-                      <tr key={row.id} className="border-b border-gray-100 hover:bg-gray-50/50 dark:border-gray-800 dark:hover:bg-gray-800/30">
-                        {row.getVisibleCells().map((cell) => (
-                          <td
-                            key={cell.id}
-                            className="border-r border-gray-100 align-top dark:border-gray-800"
-                            style={{ width: COL_WIDTH, minWidth: COL_WIDTH }}
-                          >
-                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                          </td>
-                        ))}
-                      </tr>
-                    );
-                  })}
-
-                  {paddingBottom > 0 && (
-                    <tr>
-                      <td style={{ height: paddingBottom }} colSpan={visibleColCount} />
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </SortableContext>
-          </DndContext>
-        )}
-
-        {isFetchingNextPage && (
-          <div className="p-4 text-center text-sm text-gray-500 dark:text-gray-400">Loading more rows…</div>
-        )}
-      </div>
-    </div>
+    </>
   );
 }
