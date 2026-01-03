@@ -20,7 +20,8 @@ import { CSS } from "@dnd-kit/utilities";
 
 type Props = { baseId: string; tableId: string };
 
-const COL_WIDTH = 180;
+const COL_WIDTH = 200;
+const ROW_HEIGHT = 36;
 const EMPTY_STR_ARR: string[] = [];
 
 type RowDatum = {
@@ -30,7 +31,6 @@ type RowDatum = {
 };
 
 type CellSel = { rowIdx: number; colId: string } | null;
-
 type NavDir = "left" | "right" | "up" | "down" | "tab" | "shiftTab";
 
 type GridMeta = {
@@ -47,6 +47,39 @@ type GridMeta = {
   onSelectColumn: (colId: string) => void;
   onRenameColumn: (colId: string, next: string) => void;
 };
+
+// Toolbar Icons
+const FieldsIcon = () => <span className="text-base">☰</span>;
+const FilterIcon = () => <span className="text-base">🔽</span>;
+const GroupIcon = () => <span className="text-base">▤</span>;
+const SortIcon = () => <span className="text-base">↕</span>;
+const ColourIcon = () => <span className="text-base">🎨</span>;
+const MoreIcon = () => <span className="text-base">⋯</span>;
+
+function ToolbarButton({
+  children,
+  onClick,
+  active,
+}: {
+  children: React.ReactNode;
+  onClick?: () => void;
+  active?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={[
+        "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
+        active
+          ? "bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-white"
+          : "text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-800/50",
+      ].join(" ")}
+    >
+      {children}
+    </button>
+  );
+}
 
 export function EditableHeader(props: {
   value: string;
@@ -70,7 +103,7 @@ export function EditableHeader(props: {
     return (
       <button
         type="button"
-        className="w-full px-2 py-2 text-left font-semibold text-gray-900 hover:bg-gray-100 dark:text-white dark:hover:bg-gray-800"
+        className="w-full px-3 py-2 text-left text-sm font-semibold text-gray-900 hover:bg-gray-50 dark:text-white dark:hover:bg-gray-800/50 transition-colors"
         onDoubleClick={() => setEditing(true)}
         title="Double click to rename"
       >
@@ -83,7 +116,7 @@ export function EditableHeader(props: {
     <input
       autoFocus
       disabled={props.isSaving}
-      className="w-full border border-blue-500 bg-white px-2 py-2 text-gray-900 outline-none dark:border-blue-600 dark:bg-gray-800 dark:text-white"
+      className="w-full border-2 border-blue-500 bg-white px-3 py-2 text-sm text-gray-900 outline-none dark:border-blue-600 dark:bg-gray-900 dark:text-white"
       value={draft}
       onChange={(e) => setDraft(e.target.value)}
       onBlur={commit}
@@ -119,13 +152,15 @@ function SortableHeader({
       style={{
         transform: CSS.Transform.toString(transform),
         transition,
-        opacity: isDragging ? 0.6 : 1,
+        opacity: isDragging ? 0.5 : 1,
+        width: COL_WIDTH,
+        minWidth: COL_WIDTH,
       }}
       className={[
-        "w-[180px] min-w-[180px] rounded-md border transition-colors",
-        selected 
-          ? "border-blue-500 bg-blue-50 dark:border-blue-600 dark:bg-blue-900/20" 
-          : "border-transparent hover:bg-gray-100 dark:hover:bg-gray-800",
+        "group rounded-md border transition-colors",
+        selected
+          ? "border-blue-500 bg-blue-50/50 dark:border-blue-600 dark:bg-blue-900/10"
+          : "border-transparent hover:bg-gray-50 dark:hover:bg-gray-800/30",
       ].join(" ")}
     >
       <div className="flex items-center justify-between gap-2">
@@ -133,7 +168,7 @@ function SortableHeader({
 
         <button
           type="button"
-          className="cursor-grab px-2 py-2 text-gray-400 hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-300"
+          className="cursor-grab px-2 py-2 text-gray-400 opacity-0 group-hover:opacity-100 hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-300 transition-opacity"
           aria-label="Drag to reorder"
           onClick={(e) => e.stopPropagation()}
           {...attributes}
@@ -202,10 +237,10 @@ function EditableCell(props: {
         data-cell={`${props.rowIdx}:${props.colId}`}
         tabIndex={props.selected ? 0 : -1}
         className={[
-          "w-full px-2 py-2 text-left text-gray-900 transition-colors dark:text-white",
-          props.selected 
-            ? "bg-blue-50 ring-2 ring-inset ring-blue-500 dark:bg-blue-900/30 dark:ring-blue-600" 
-            : "hover:bg-gray-50 dark:hover:bg-gray-800",
+          "w-full px-3 py-2 text-left text-sm text-gray-900 transition-colors dark:text-white",
+          props.selected
+            ? "bg-blue-50 ring-2 ring-inset ring-blue-500 dark:bg-blue-900/20 dark:ring-blue-600"
+            : "hover:bg-gray-50 dark:hover:bg-gray-800/30",
         ].join(" ")}
         onClick={props.onSelect}
         onFocus={props.onSelect}
@@ -246,7 +281,7 @@ function EditableCell(props: {
     <input
       autoFocus
       disabled={props.isSaving}
-      className="w-full border-2 border-blue-500 bg-white px-2 py-2 text-gray-900 outline-none dark:border-blue-600 dark:bg-gray-900 dark:text-white"
+      className="w-full border-2 border-blue-500 bg-white px-3 py-2 text-sm text-gray-900 outline-none dark:border-blue-600 dark:bg-gray-900 dark:text-white"
       value={draft}
       onChange={(e) => setDraft(e.target.value)}
       onBlur={() => commit()}
@@ -435,7 +470,7 @@ export function TableGrid({ baseId, tableId }: Props) {
   const rowVirtualizer = useVirtualizer({
     count: displayData.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => 34,
+    estimateSize: () => ROW_HEIGHT,
     overscan: 20,
   });
 
@@ -813,7 +848,7 @@ export function TableGrid({ baseId, tableId }: Props) {
           const colType = m?.colsById[colId]?.type ?? "TEXT";
 
           return (
-            <div className="w-[180px] min-w-[180px]">
+            <div style={{ width: COL_WIDTH, minWidth: COL_WIDTH }}>
               <EditableCell
                 rowIdx={rowIdx}
                 colId={colId}
@@ -862,7 +897,7 @@ export function TableGrid({ baseId, tableId }: Props) {
       </div>
     );
   }
-  
+
   if (meta.error) {
     return (
       <div className="flex items-center justify-center p-8">
@@ -878,7 +913,7 @@ export function TableGrid({ baseId, tableId }: Props) {
       </div>
     );
   }
-  
+
   if (rowsQ.error) {
     return (
       <div className="flex items-center justify-center p-8">
@@ -888,119 +923,63 @@ export function TableGrid({ baseId, tableId }: Props) {
   }
 
   return (
-    <div className="rounded-xl border bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-900">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-4">
-        <div className="text-gray-600 dark:text-gray-400">
-          Rows (DB): <span className="font-semibold text-gray-900 dark:text-white">{totalRowCount}</span>{" "}
-          <span className="mx-2 text-gray-300 dark:text-gray-700">•</span>
-          Loaded: <span className="font-semibold text-gray-900 dark:text-white">{loadedRowCount}</span>{" "}
-          {addProgress > 0 && (
-            <>
-              <span className="mx-2 text-gray-300 dark:text-gray-700">•</span>
-              Added: <span className="font-semibold text-gray-900 dark:text-white">{addProgress}</span>
-            </>
-          )}
+    <div className="flex h-full flex-col bg-white dark:bg-gray-900">
+      {/* Airtable-style Toolbar */}
+      <div className="flex items-center justify-between border-b border-gray-200 bg-white px-4 py-2 dark:border-gray-800 dark:bg-gray-900">
+        <div className="flex items-center gap-2">
+          <ToolbarButton>
+            <FieldsIcon />
+            <span>Fields</span>
+          </ToolbarButton>
+          <ToolbarButton>
+            <FilterIcon />
+            <span>Filter</span>
+          </ToolbarButton>
+          <ToolbarButton>
+            <GroupIcon />
+            <span>Group</span>
+          </ToolbarButton>
+          <ToolbarButton>
+            <SortIcon />
+            <span>Sort</span>
+          </ToolbarButton>
+          <ToolbarButton>
+            <ColourIcon />
+            <span>Colour</span>
+          </ToolbarButton>
+
+          <div className="mx-2 h-6 w-px bg-gray-200 dark:bg-gray-700" />
+
+          <ViewControls
+            baseId={baseId}
+            tableId={tableId}
+            views={(viewsQ.data ?? []).map((v) => ({ id: v.id, name: v.name }))}
+            viewsLoading={viewsQ.isLoading}
+            viewId={viewId}
+            onSelectView={(next) => setViewId(next)}
+            onChangedView={() => {
+              setSelectedCell(null);
+              setSelectedColumnId(null);
+              pendingSelRef.current = null;
+              parentRef.current?.scrollTo({ top: 0 });
+            }}
+            currentConfig={(viewGetQ.data?.config as ViewConfig | undefined) ?? undefined}
+            configLoading={viewGetQ.isLoading}
+            columns={allCols}
+            onConfigSaved={() => {
+              void invalidateRows();
+              parentRef.current?.scrollTo({ top: 0 });
+            }}
+          />
         </div>
 
-        <ViewControls
-          baseId={baseId}
-          tableId={tableId}
-          views={(viewsQ.data ?? []).map((v) => ({ id: v.id, name: v.name }))}
-          viewsLoading={viewsQ.isLoading}
-          viewId={viewId}
-          onSelectView={(next) => setViewId(next)}
-          onChangedView={() => {
-            setSelectedCell(null);
-            setSelectedColumnId(null);
-            pendingSelRef.current = null;
-            parentRef.current?.scrollTo({ top: 0 });
-          }}
-          currentConfig={(viewGetQ.data?.config as ViewConfig | undefined) ?? undefined}
-          configLoading={viewGetQ.isLoading}
-          columns={allCols}
-          onConfigSaved={() => {
-            void invalidateRows();
-            parentRef.current?.scrollTo({ top: 0 });
-          }}
-        />
-
-        <div className="flex flex-wrap items-center gap-2">
-          {!addingCol ? (
-            <button
-              className="rounded-lg border border-gray-300 bg-white px-4 py-2 font-semibold text-gray-700 hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
-              onClick={() => setAddingCol(true)}
-            >
-              + Column
-            </button>
-          ) : (
-            <div className="flex items-center gap-2">
-              <input
-                className="w-44 rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-                placeholder="Column name"
-                value={newColName}
-                onChange={(e) => setNewColName(e.target.value)}
-              />
-              <select
-                className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-                value={newColType}
-                onChange={(e) => setNewColType(e.target.value as "TEXT" | "NUMBER")}
-              >
-                <option value="TEXT">Text</option>
-                <option value="NUMBER">Number</option>
-              </select>
-
-              <button
-                className="rounded-lg bg-blue-600 px-4 py-2 font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
-                disabled={addColMut.isPending}
-                onClick={() =>
-                  addColMut.mutate({
-                    baseId,
-                    tableId,
-                    name: newColName.trim() || "Field",
-                    type: newColType,
-                  })
-                }
-              >
-                {addColMut.isPending ? "Adding…" : "Add"}
-              </button>
-
-              <button
-                className="rounded-lg px-3 py-2 text-gray-700 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
-                onClick={() => {
-                  setAddingCol(false);
-                  setNewColName("");
-                  setNewColType("TEXT");
-                }}
-              >
-                Cancel
-              </button>
-            </div>
-          )}
-
-          <button
-            className="rounded-lg border border-gray-300 bg-white px-4 py-2 font-semibold text-gray-700 hover:bg-gray-100 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
-            disabled={addRowsMut.isPending}
-            onClick={handleAdd100k}
-          >
-            {addRowsMut.isPending ? "Adding…" : "Add 100k rows"}
-          </button>
-
-          <button
-            className="rounded-lg border border-gray-300 bg-white px-4 py-2 font-semibold text-gray-700 hover:bg-gray-100 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
-            disabled={!selectedColumnId || deleteColMut.isPending}
-            onClick={() => {
-              if (!selectedColumnId) return;
-              deleteColMut.mutate({ baseId, tableId, columnId: selectedColumnId });
-            }}
-          >
-            Delete column
-          </button>
-
+        <div className="flex items-center gap-2">
+          {/* Search */}
           <div className="flex items-center gap-2">
             <input
               ref={searchRef}
-              className="w-64 rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-              placeholder="Search all cells…"
+              className="w-48 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+              placeholder="Search..."
               value={queryInput}
               onChange={(e) => setQueryInput(e.target.value)}
               onFocus={() => setIsSearchFocused(true)}
@@ -1017,49 +996,134 @@ export function TableGrid({ baseId, tableId }: Props) {
               }}
             />
 
-            <button
-              type="button"
-              className="rounded-lg bg-blue-600 px-3 py-2 font-semibold text-white hover:bg-blue-700"
-              onClick={applySearch}
-            >
-              Search
-            </button>
-
             {isFetching && (
-              <span className="text-sm text-gray-500 dark:text-gray-400">Searching…</span>
+              <span className="text-xs text-gray-500 dark:text-gray-400">Searching…</span>
             )}
 
             {(!!activeQuery || queryInput.length > 0) && (
               <button
                 type="button"
-                className="rounded-lg px-3 py-2 text-gray-700 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
+                className="rounded px-2 py-1 text-xs text-gray-700 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
                 onClick={clearSearch}
               >
                 Clear
               </button>
             )}
           </div>
+
+          <ToolbarButton>
+            <MoreIcon />
+          </ToolbarButton>
+        </div>
+      </div>
+
+      {/* Column Management Bar */}
+      <div className="flex items-center gap-3 border-b border-gray-200 bg-gray-50 px-4 py-2 text-sm dark:border-gray-800 dark:bg-gray-900/50">
+        <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
+          <span>Rows: <span className="font-medium text-gray-900 dark:text-white">{totalRowCount}</span></span>
+          <span className="text-gray-300 dark:text-gray-700">•</span>
+          <span>Loaded: <span className="font-medium text-gray-900 dark:text-white">{loadedRowCount}</span></span>
+          {addProgress > 0 && (
+            <>
+              <span className="text-gray-300 dark:text-gray-700">•</span>
+              <span>Added: <span className="font-medium text-gray-900 dark:text-white">{addProgress}</span></span>
+            </>
+          )}
+        </div>
+
+        <div className="ml-auto flex items-center gap-2">
+          {!addingCol ? (
+            <>
+              <button
+                className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
+                onClick={() => setAddingCol(true)}
+              >
+                + Add field
+              </button>
+              <button
+                className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
+                disabled={addRowsMut.isPending}
+                onClick={handleAdd100k}
+              >
+                {addRowsMut.isPending ? "Adding…" : "Add 100k rows"}
+              </button>
+              <button
+                className="rounded-lg border border-red-300 bg-white px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50 dark:border-red-700 dark:bg-gray-800 dark:text-red-400 dark:hover:bg-red-900/20"
+                disabled={!selectedColumnId || deleteColMut.isPending}
+                onClick={() => {
+                  if (!selectedColumnId) return;
+                  deleteColMut.mutate({ baseId, tableId, columnId: selectedColumnId });
+                }}
+              >
+                Delete field
+              </button>
+            </>
+          ) : (
+            <div className="flex items-center gap-2">
+              <input
+                className="w-36 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                placeholder="Field name"
+                value={newColName}
+                onChange={(e) => setNewColName(e.target.value)}
+              />
+              <select
+                className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-900 outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                value={newColType}
+                onChange={(e) => setNewColType(e.target.value as "TEXT" | "NUMBER")}
+              >
+                <option value="TEXT">Text</option>
+                <option value="NUMBER">Number</option>
+              </select>
+
+              <button
+                className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                disabled={addColMut.isPending}
+                onClick={() =>
+                  addColMut.mutate({
+                    baseId,
+                    tableId,
+                    name: newColName.trim() || "Field",
+                    type: newColType,
+                  })
+                }
+              >
+                {addColMut.isPending ? "Adding…" : "Add"}
+              </button>
+
+              <button
+                className="rounded-lg px-3 py-1.5 text-sm text-gray-700 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
+                onClick={() => {
+                  setAddingCol(false);
+                  setNewColName("");
+                  setNewColType("TEXT");
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
       {addErr && (
-        <div className="mb-3 rounded-lg border border-red-300 bg-red-50 p-3 text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
+        <div className="mx-4 mt-3 rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
           Add rows failed: {addErr}
         </div>
       )}
 
+      {/* Table Container */}
       <div
         ref={parentRef}
-        className="scrollbar-light dark:scrollbar-dark h-[70vh] overflow-auto rounded-lg border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900"
+        className="scrollbar-light dark:scrollbar-dark flex-1 overflow-auto bg-white dark:bg-gray-900"
       >
         {!!activeQuery && !isFetching && displayData.length === 0 && (
-          <div className="p-6 text-center text-gray-600 dark:text-gray-400">
+          <div className="p-8 text-center text-gray-600 dark:text-gray-400">
             No results for <span className="font-semibold text-gray-900 dark:text-white">{activeQuery}</span>
           </div>
         )}
 
         {visibleLeafCols.length === 0 ? (
-          <div className="p-6 text-center text-gray-600 dark:text-gray-400">
+          <div className="p-8 text-center text-gray-600 dark:text-gray-400">
             All columns are hidden in this view.
           </div>
         ) : (
@@ -1069,13 +1133,13 @@ export function TableGrid({ baseId, tableId }: Props) {
                 className="w-max border-collapse text-gray-900 dark:text-white"
                 style={{ minWidth: `${visibleLeafCols.length * COL_WIDTH}px` }}
               >
-                <thead className="sticky top-0 z-10 bg-gray-100 backdrop-blur dark:bg-gray-800">
+                <thead className="sticky top-0 z-10 bg-gray-50 backdrop-blur dark:bg-gray-800/95">
                   {headerGroups.map((hg) => (
                     <tr key={hg.id}>
                       {hg.headers.map((header) => (
                         <th
                           key={header.id}
-                          className="border-b border-gray-200 align-top dark:border-gray-700"
+                          className="border-b border-r border-gray-200 align-top dark:border-gray-700"
                           style={{ width: COL_WIDTH, minWidth: COL_WIDTH }}
                         >
                           {header.isPlaceholder
@@ -1099,11 +1163,11 @@ export function TableGrid({ baseId, tableId }: Props) {
                     if (!row) return null;
 
                     return (
-                      <tr key={row.id} className="border-b border-gray-100 dark:border-gray-800">
+                      <tr key={row.id} className="border-b border-gray-100 hover:bg-gray-50/50 dark:border-gray-800 dark:hover:bg-gray-800/30">
                         {row.getVisibleCells().map((cell) => (
                           <td
                             key={cell.id}
-                            className="border-r border-gray-200 align-top dark:border-gray-700"
+                            className="border-r border-gray-100 align-top dark:border-gray-800"
                             style={{ width: COL_WIDTH, minWidth: COL_WIDTH }}
                           >
                             {flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -1125,7 +1189,7 @@ export function TableGrid({ baseId, tableId }: Props) {
         )}
 
         {isFetchingNextPage && (
-          <div className="p-3 text-gray-500 dark:text-gray-400">Loading more…</div>
+          <div className="p-4 text-center text-sm text-gray-500 dark:text-gray-400">Loading more rows…</div>
         )}
       </div>
     </div>
