@@ -39,12 +39,9 @@ export function TableGridWrapper({
 }: TableGridWrapperProps) {
   const [viewModalTrigger, setViewModalTrigger] = useState(0);
 
-  // Keep views in sync with server
+  // Keep views in sync with server - let TypeScript infer the type
   const viewsQuery = api.view.list.useQuery(
-    { baseId: currentBaseId, tableId: currentTableId },
-    { 
-      initialData: initialViews as typeof viewsQuery.data 
-    }
+    { baseId: currentBaseId, tableId: currentTableId }
   );
 
   const createViewMutation = api.view.create.useMutation();
