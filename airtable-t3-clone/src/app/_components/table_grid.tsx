@@ -20,8 +20,13 @@ import { CSS } from "@dnd-kit/utilities";
 type Props = { 
   baseId: string; 
   tableId: string;
-  showViewModal?: boolean;
-  onCloseViewModal?: () => void;
+  viewModalTrigger?: number; // Change this number to open the modal
+  onViewCreated?: (config: {
+    name: string;
+    sortColumn?: string;
+    sortDirection?: "ASC" | "DESC";
+    hiddenColumns: string[];
+  }) => void;
 };
 
 const COL_WIDTH = 200;
@@ -499,7 +504,7 @@ function EditableCell(props: {
   );
 }
 
-export function TableGrid({ baseId, tableId, showViewModal, onCloseViewModal }: Props) {
+export function TableGrid({ baseId, tableId, viewModalTrigger, onViewCreated }: Props) {
   const PAGE_SIZE = 100;
   const ADD_TOTAL = 100_000;
   const CHUNK_SIZE = 5_000;
@@ -508,6 +513,16 @@ export function TableGrid({ baseId, tableId, showViewModal, onCloseViewModal }: 
 
   const pendingSelRef = React.useRef<CellSel>(null);
   const parentRef = React.useRef<HTMLDivElement>(null);
+
+  // Modal state - managed internally
+  const [showViewModal, setShowViewModal] = React.useState(false);
+
+  // Open modal when trigger changes
+  React.useEffect(() => {
+    if (viewModalTrigger !== undefined && viewModalTrigger > 0) {
+      setShowViewModal(true);
+    }
+  }, [viewModalTrigger]);
 
   const [queryInput, setQueryInput] = React.useState("");
   const [activeQuery, setActiveQuery] = React.useState<string | undefined>(undefined);
@@ -1084,13 +1099,12 @@ export function TableGrid({ baseId, tableId, showViewModal, onCloseViewModal }: 
   return (
     <>
       <ViewConfigModal
-        isOpen={showViewModal ?? false}
-        onClose={() => onCloseViewModal?.()}
+        isOpen={showViewModal}
+        onClose={() => setShowViewModal(false)}
         columns={allCols}
         onCreateView={(config) => {
-          console.log("Creating view with config:", config);
-          // You'll implement the actual view creation mutation here
-          onCloseViewModal?.();
+          onViewCreated?.(config);
+          setShowViewModal(false);
         }}
       />
 
