@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { AppLayout } from "~/app/_components/app-layout";
 import { TableGrid } from "~/app/_components/table_grid";
+import { ViewControls } from "~/app/_components/view_controls";
 import { api } from "~/trpc/react";
 
 type Base = { id: string; name: string };
@@ -37,14 +38,38 @@ export function TableGridWrapper({
   currentUser,
 }: TableGridWrapperProps) {
   const [viewModalTrigger, setViewModalTrigger] = useState(0);
+  const [currentViewId, setCurrentViewId] = useState<string | undefined>(
+    initialViews[0]?.id
+  );
 
   const viewsQuery = api.view.list.useQuery({
     baseId: currentBaseId,
     tableId: currentTableId,
   });
 
+  const viewGetQuery = api.view.get.useQuery(
+    {
+      baseId: currentBaseId,
+      tableId: currentTableId,
+      viewId: currentViewId ?? "",
+    },
+    { enabled: !!currentViewId }
+  );
+
+  const metaQuery = api.table.getMeta.useQuery({
+    baseId: currentBaseId,
+    tableId: currentTableId,
+  });
+
   const createViewMutation = api.view.create.useMutation();
   const updateConfigMutation = api.view.updateConfig.useMutation();
+
+  // Set first view as current when views load
+  useEffect(() => {
+    if (!currentViewId && viewsQuery.data?.length) {
+      setCurrentViewId(viewsQuery.data[0]!.id);
+    }
+  }, [currentViewId, viewsQuery.data]);
 
   return (
     <AppLayout
@@ -53,28 +78,57 @@ export function TableGridWrapper({
       views={viewsQuery.data ?? initialViews}
       currentBaseId={currentBaseId}
       currentTableId={currentTableId}
+      currentViewId={currentViewId}
       currentUser={currentUser}
       onCreateView={(type) => {
         if (type === "GRID") setViewModalTrigger((prev) => prev + 1);
       }}
     >
-      {/* Key: make this a real flex column with min-h-0 so the scroll child can shrink */}
       <div className="flex h-full min-h-0 flex-col bg-gray-50 dark:bg-gray-950">
+        {/* Header with ViewControls */}
         <div className="border-b bg-white px-6 py-4 dark:border-gray-800 dark:bg-gray-900">
-          <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
-            <span>Workspace</span>
-            <span>›</span>
-            <span className="font-semibold text-gray-900 dark:text-white">Table</span>
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+              <span>Workspace</span>
+              <span>›</span>
+              <span className="font-semibold text-gray-900 dark:text-white">
+                Table
+              </span>
+            </div>
+
+            {/* View Controls for managing views */}
+            <ViewControls
+              baseId={currentBaseId}
+              tableId={currentTableId}
+              viewId={currentViewId}
+              onSelectView={(next) => setCurrentViewId(next)}
+              views={(viewsQuery.data ?? initialViews).map((v) => ({
+                id: v.id,
+                name: v.name,
+              }))}
+              viewsLoading={viewsQuery.isLoading}
+              currentConfig={viewGetQuery.data?.config}
+              configLoading={viewGetQuery.isLoading}
+              columns={metaQuery.data?.columns ?? []}
+              onChangedView={() => {
+                // Refetch when view changes
+                void viewGetQuery.refetch();
+              }}
+              onConfigSaved={() => {
+                // Refetch data when config is saved
+                void viewGetQuery.refetch();
+              }}
+            />
           </div>
         </div>
 
-        {/* Key: this must be min-h-0 and flex-1 so TableGrid gets a constrained height */}
+        {/* Table Grid - pass viewId to enable filtering */}
         <div className="min-h-0 flex-1 p-6">
-          {/* Optional: if you want the grid to have its own rounded panel */}
           <div className="h-full min-h-0 overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
             <TableGrid
               baseId={currentBaseId}
               tableId={currentTableId}
+              viewId={currentViewId}
               viewModalTrigger={viewModalTrigger}
               onViewCreated={async (config) => {
                 try {
@@ -94,7 +148,8 @@ export function TableGridWrapper({
                   if (config.sortColumn) {
                     configPatch.sort = {
                       columnId: config.sortColumn,
-                      direction: config.sortDirection === "ASC" ? "asc" : "desc",
+                      direction:
+                        config.sortDirection === "ASC" ? "asc" : "desc",
                     };
                   }
 
@@ -105,7 +160,9 @@ export function TableGridWrapper({
                     patch: configPatch,
                   });
 
+                  // Refetch views and set as current
                   await viewsQuery.refetch();
+                  setCurrentViewId(newView.id);
                 } catch (error) {
                   console.error("Failed to create view:", error);
                 }

@@ -20,7 +20,8 @@ import { CSS } from "@dnd-kit/utilities";
 type Props = { 
   baseId: string; 
   tableId: string;
-  viewModalTrigger?: number; // Change this number to open the modal
+  viewId?: string; // ADD THIS
+  viewModalTrigger?: number;
   onViewCreated?: (config: {
     name: string;
     sortColumn?: string;
@@ -504,7 +505,7 @@ function EditableCell(props: {
   );
 }
 
-export function TableGrid({ baseId, tableId, viewModalTrigger, onViewCreated }: Props) {
+export function TableGrid({ baseId, tableId, viewId, viewModalTrigger, onViewCreated }: Props) {
   const PAGE_SIZE = 100;
   const ADD_TOTAL = 100_000;
   const CHUNK_SIZE = 5_000;
@@ -573,10 +574,11 @@ export function TableGrid({ baseId, tableId, viewModalTrigger, onViewCreated }: 
     () => ({
       baseId,
       tableId,
+      ...(viewId ? { viewId } : {}), // ADD THIS LINE
       limit: PAGE_SIZE,
       q: activeQuery?.trim() ? activeQuery.trim() : undefined,
     }),
-    [baseId, tableId, activeQuery],
+    [baseId, tableId, viewId, activeQuery], // ADD viewId to dependencies
   );
 
   const rowsQ = api.table.rowsInfinite.useInfiniteQuery(rowsKey, {

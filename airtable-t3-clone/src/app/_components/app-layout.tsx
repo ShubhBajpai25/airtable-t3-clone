@@ -81,7 +81,7 @@ function IconButton({
 
 function LeftRail({ currentUser }: { currentUser?: CurrentUser }) {
   const pathname = usePathname();
-  const initials = useMemo(() => getInitials(currentUser?.name), [currentUser?.name]);
+  const { theme, toggleTheme } = useTheme();
 
   return (
     <aside className="flex h-screen w-14 flex-col items-center border-r border-[var(--border-soft)] bg-[var(--surface)] py-3">
@@ -106,18 +106,14 @@ function LeftRail({ currentUser }: { currentUser?: CurrentUser }) {
         </IconButton>
       </div>
 
+      {/* Theme toggle at bottom */}
       <div className="mt-2 mb-1">
-        <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-[var(--border)] bg-[var(--surface-2)] shadow-sm">
-          {currentUser?.avatarUrl ? (
-            <img
-              src={currentUser.avatarUrl}
-              alt={`${currentUser.name} avatar`}
-              className="h-full w-full object-cover"
-            />
-          ) : (
-            <span className="text-xs font-semibold text-[var(--muted)]">{initials}</span>
-          )}
-        </div>
+        <IconButton
+          title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+          onClick={toggleTheme}
+        >
+          {theme === "dark" ? <SunIcon /> : <MoonIcon />}
+        </IconButton>
       </div>
     </aside>
   );
@@ -147,8 +143,8 @@ function WorkspaceSidebar({
   onCreateView?: (type: "GRID" | "GALLERY") => void;
 }) {
   const pathname = usePathname();
-  const { theme, toggleTheme } = useTheme();
   const [showViewDropdown, setShowViewDropdown] = React.useState(false);
+  const [showProfileDropdown, setShowProfileDropdown] = React.useState(false);
 
   const currentBaseName = bases.find((b) => b.id === currentBaseId)?.name ?? "Base";
   const initials = useMemo(() => getInitials(currentUser?.name), [currentUser?.name]);
@@ -249,8 +245,8 @@ function WorkspaceSidebar({
             const tableActive = currentTableId === table.id;
             const tableHref = currentBaseId ? `/base/${currentBaseId}/table/${table.id}` : "#";
             
-            // Filter views for this table
-            const tableViews = views.filter(v => v.id.startsWith(table.id));
+            // Only show views for the active table
+            const tableViews = tableActive ? views : [];
 
             return (
               <div key={table.id} className="space-y-0.5">
@@ -363,10 +359,13 @@ function WorkspaceSidebar({
         </div>
       </div>
 
-      {/* Footer */}
-      <div className="border-t border-[var(--border-soft)] p-3">
-        <div className="flex items-center gap-3 rounded-lg px-3 py-2 hover:bg-[var(--surface-2)] transition-colors">
-          <div className="h-9 w-9 overflow-hidden rounded-full border border-[var(--border)] bg-[var(--surface)] flex items-center justify-center flex-shrink-0">
+      {/* Footer - Profile only */}
+      <div className="relative border-t border-[var(--border-soft)] p-3">
+        <button
+          onClick={() => setShowProfileDropdown(!showProfileDropdown)}
+          className="flex w-full items-center justify-center rounded-lg p-2 hover:bg-[var(--surface-2)] transition-colors"
+        >
+          <div className="h-9 w-9 overflow-hidden rounded-full border border-[var(--border)] bg-[var(--surface)] flex items-center justify-center">
             {currentUser?.avatarUrl ? (
               <img
                 src={currentUser.avatarUrl}
@@ -377,23 +376,50 @@ function WorkspaceSidebar({
               <span className="text-xs font-semibold text-[var(--muted)]">{initials}</span>
             )}
           </div>
+        </button>
 
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-semibold text-[var(--fg)]">
-              {currentUser?.name ?? "Guest"}
+        {/* Profile Dropdown */}
+        {showProfileDropdown && (
+          <>
+            <div
+              className="fixed inset-0 z-10"
+              onClick={() => setShowProfileDropdown(false)}
+            />
+            <div className="absolute bottom-full left-3 right-3 z-20 mb-2 rounded-lg border border-[var(--border-soft)] bg-[var(--surface)] shadow-lg">
+              <div className="border-b border-[var(--border-soft)] px-4 py-3">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 overflow-hidden rounded-full border border-[var(--border)] bg-[var(--surface)] flex items-center justify-center flex-shrink-0">
+                    {currentUser?.avatarUrl ? (
+                      <img
+                        src={currentUser.avatarUrl}
+                        alt={`${currentUser.name} avatar`}
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <span className="text-xs font-semibold text-[var(--muted)]">{initials}</span>
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-semibold text-[var(--fg)]">
+                      {currentUser?.name ?? "Guest"}
+                    </div>
+                    <div className="truncate text-xs text-[var(--muted)]">Signed in</div>
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  // Sign out logic here
+                  window.location.href = "/api/auth/signout";
+                }}
+                className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20 transition-colors rounded-b-lg"
+              >
+                <span>🚪</span>
+                <span>Sign out</span>
+              </button>
             </div>
-            <div className="truncate text-xs text-[var(--muted)]">Signed in</div>
-          </div>
-
-          <button
-            onClick={toggleTheme}
-            className="rounded-lg p-2 text-[var(--muted)] hover:bg-[var(--surface)] hover:text-[var(--fg)] transition-colors flex-shrink-0"
-            title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
-            aria-label="Toggle theme"
-          >
-            {theme === "dark" ? <SunIcon /> : <MoonIcon />}
-          </button>
-        </div>
+          </>
+        )}
       </div>
     </aside>
   );
@@ -430,7 +456,6 @@ export function AppLayout({
         onCreateView={onCreateView}
       />
 
-      {/* Key: main is a flex column with overflow-hidden, and we scroll in the inner div */}
       <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--bg)]">
         <div className="scrollbar min-h-0 flex-1 overflow-auto bg-[var(--bg)]">
           {header && (
