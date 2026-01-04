@@ -4,6 +4,8 @@ import { signIn } from "next-auth/react";
 import { useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 
+import { auth } from "~/server/auth";
+
 function SignInForm() {
   const [isLoading, setIsLoading] = useState(false);
   const searchParams = useSearchParams();
@@ -118,3 +120,4 @@ export default function SignInPage() {
     </Suspense>
   );
 }
+
