@@ -648,6 +648,8 @@ export function TableGrid({ baseId, tableId, viewModalTrigger, onViewCreated }: 
     overscan: 20,
   });
 
+  const virtualRows = rowVirtualizer.getVirtualItems();
+
   const selectCell = React.useCallback((rowIdx: number, colId: string) => {
     setSelectedColumnId(null);
     setSelectedCell({ rowIdx, colId });
@@ -945,29 +947,41 @@ export function TableGrid({ baseId, tableId, viewModalTrigger, onViewCreated }: 
   };
 
   const loadedRowCount = displayData.length;
-  const vItems = rowVirtualizer.getVirtualItems();
-  const lastVirtualIndex = vItems.at(-1)?.index ?? -1;
+  const lastVirtualIndex = virtualRows.length ? virtualRows[virtualRows.length - 1]!.index : -1;
 
-  const LOAD_MORE_PX = ROW_HEIGHT * 10;
+  // Prevent the old runaway loop when layout breaks / container isn't scrollable.
+  const autoFillGuardRef = React.useRef(0);
+
+  // Reset guard when the dataset changes (new table / new search)
+  React.useEffect(() => {
+    autoFillGuardRef.current = 0;
+  }, [baseId, tableId, activeQuery]);
 
   React.useEffect(() => {
-    const el = parentRef.current;
-    if (!el) return;
-
+    if (lastVirtualIndex < 0) return;
     if (!hasNextPage || isFetchingNextPage) return;
     if (loadedRowCount === 0) return;
 
-    // Prevent runaway loop when the container isn't actually scrollable
+    const el = parentRef.current;
+    if (!el) return;
+
     const canScroll = el.scrollHeight > el.clientHeight + 1;
-    if (!canScroll) return;
 
-    const distanceFromBottom = el.scrollHeight - (el.scrollTop + el.clientHeight);
-    const nearBottom = distanceFromBottom < LOAD_MORE_PX;
+    // If not scrollable yet, fetch a couple pages to "fill" the viewport,
+    // but cap it so we never spam fetches if layout is broken.
+    if (!canScroll) {
+      if (autoFillGuardRef.current >= 3) return;
+      autoFillGuardRef.current += 1;
+      void fetchNextPage();
+      return;
+    }
 
-    if (!nearBottom) return;
+    // Normal infinite-scroll behavior: when user scrolls near the end of loaded rows
+    if (lastVirtualIndex >= loadedRowCount - 10) {
+      void fetchNextPage();
+    }
+  }, [lastVirtualIndex, loadedRowCount, hasNextPage, isFetchingNextPage, fetchNextPage]);
 
-    void fetchNextPage();
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage, loadedRowCount]);
 
 
   const gridMeta: GridMeta = {
@@ -1058,7 +1072,6 @@ export function TableGrid({ baseId, tableId, viewModalTrigger, onViewCreated }: 
   const headerGroups = table.getHeaderGroups();
   const tableRows = table.getRowModel().rows;
 
-  const virtualRows = rowVirtualizer.getVirtualItems();
   const totalSize = rowVirtualizer.getTotalSize();
   const paddingTop = virtualRows.length > 0 ? virtualRows[0]!.start : 0;
   const paddingBottom =
