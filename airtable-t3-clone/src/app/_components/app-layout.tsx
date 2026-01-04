@@ -58,7 +58,12 @@ function LeftRail({ currentUser }: { currentUser?: CurrentUser }) {
         </div>
       </div>
 
-      {/* Create New Button */}
+      {/* Space for additional buttons you'll add later */}
+      
+      {/* Spacer - pushes everything below to the bottom */}
+      <div className="flex-1" />
+
+      {/* Create New Button - now at bottom */}
       <div className="relative mb-2">
         <button
           onClick={() => setShowCreateMenu(!showCreateMenu)}
@@ -75,7 +80,7 @@ function LeftRail({ currentUser }: { currentUser?: CurrentUser }) {
               className="fixed inset-0 z-10"
               onClick={() => setShowCreateMenu(false)}
             />
-            <div className="absolute left-full top-0 z-20 ml-2 w-56 rounded-lg border border-[var(--border-soft)] bg-[var(--surface)] shadow-lg">
+            <div className="absolute left-full bottom-0 z-20 ml-2 w-56 rounded-lg border border-[var(--border-soft)] bg-[var(--surface)] shadow-lg">
               <div className="px-3 py-2 text-xs font-semibold uppercase text-[var(--muted)]">
                 Create New
               </div>
@@ -96,10 +101,7 @@ function LeftRail({ currentUser }: { currentUser?: CurrentUser }) {
         )}
       </div>
 
-      {/* Divider */}
-      <div className="w-8 border-t border-[var(--border-soft)] mb-2" />
-
-      {/* Theme Toggle Button */}
+      {/* Theme Toggle Button - now at bottom */}
       <div className="mb-2">
         <button
           onClick={toggleTheme}
@@ -110,9 +112,7 @@ function LeftRail({ currentUser }: { currentUser?: CurrentUser }) {
         </button>
       </div>
 
-      <div className="flex-1" />
-
-      {/* Profile at bottom */}
+      {/* Profile at very bottom */}
       <div className="relative mt-2 mb-1">
         <button
           onClick={() => setShowProfileMenu(!showProfileMenu)}
@@ -159,8 +159,8 @@ function LeftRail({ currentUser }: { currentUser?: CurrentUser }) {
                 </div>
               </div>
               <button
-                onClick={async () => {
-                  await signOut({ callbackUrl: "/signin" });
+                onClick={() => {
+                  window.location.href = "/api/auth/signout";
                 }}
                 className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20 transition-colors rounded-b-lg"
               >
