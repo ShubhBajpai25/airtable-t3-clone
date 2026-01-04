@@ -171,7 +171,7 @@ function WorkspaceSidebar({
   }
 
   return (
-    <aside className="flex h-screen w-80 flex-col border-r border-[var(--border-soft)] bg-[var(--surface)]">
+    <aside className="flex h-screen min-h-0 w-80 flex-col border-r border-[var(--border-soft)] bg-[var(--surface)]">
       {/* Header with Base selector and collapse */}
       <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-[var(--border-soft)]">
         <button
@@ -225,7 +225,7 @@ function WorkspaceSidebar({
       </div>
 
       {/* Navigation */}
-      <div className="scrollbar flex-1 overflow-y-auto px-3 pb-3">
+      <div className="scrollbar min-h-0 flex-1 overflow-y-auto px-3 pb-3">
         <Link
           href={overviewHref}
           className={[
@@ -414,8 +414,9 @@ export function AppLayout({
   const [sidebarCollapsed, setSidebarCollapsed] = React.useState(false);
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[var(--bg)]">
+    <div className="flex h-screen min-h-0 overflow-hidden bg-[var(--bg)]">
       <LeftRail currentUser={currentUser} />
+
       <WorkspaceSidebar
         bases={bases}
         tables={tables}
@@ -429,14 +430,17 @@ export function AppLayout({
         onCreateView={onCreateView}
       />
 
-      <main className="scrollbar relative flex-1 overflow-auto bg-[var(--bg)]">
-        {header && (
-          <div className="sticky top-0 z-20 border-b border-[var(--border-soft)] bg-[var(--bg)]">
-            {header}
-          </div>
-        )}
+      {/* Key: main is a flex column with overflow-hidden, and we scroll in the inner div */}
+      <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--bg)]">
+        <div className="scrollbar min-h-0 flex-1 overflow-auto bg-[var(--bg)]">
+          {header && (
+            <div className="sticky top-0 z-20 border-b border-[var(--border-soft)] bg-[var(--bg)]">
+              {header}
+            </div>
+          )}
 
-        {children}
+          {children}
+        </div>
       </main>
     </div>
   );

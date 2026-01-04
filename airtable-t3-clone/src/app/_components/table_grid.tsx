@@ -948,24 +948,27 @@ export function TableGrid({ baseId, tableId, viewModalTrigger, onViewCreated }: 
   const vItems = rowVirtualizer.getVirtualItems();
   const lastVirtualIndex = vItems.at(-1)?.index ?? -1;
 
+  const LOAD_MORE_PX = ROW_HEIGHT * 10;
+
   React.useEffect(() => {
-    if (lastVirtualIndex < 0) return;
+    const el = parentRef.current;
+    if (!el) return;
+
     if (!hasNextPage || isFetchingNextPage) return;
     if (loadedRowCount === 0) return;
 
-    if (isFetching && !isFetchingNextPage) return;
+    // Prevent runaway loop when the container isn't actually scrollable
+    const canScroll = el.scrollHeight > el.clientHeight + 1;
+    if (!canScroll) return;
 
-    if (lastVirtualIndex >= loadedRowCount - 10) {
-      void fetchNextPage();
-    }
-  }, [
-    lastVirtualIndex,
-    loadedRowCount,
-    hasNextPage,
-    isFetching,
-    isFetchingNextPage,
-    fetchNextPage,
-  ]);
+    const distanceFromBottom = el.scrollHeight - (el.scrollTop + el.clientHeight);
+    const nearBottom = distanceFromBottom < LOAD_MORE_PX;
+
+    if (!nearBottom) return;
+
+    void fetchNextPage();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage, loadedRowCount]);
+
 
   const gridMeta: GridMeta = {
     colsById,
@@ -1064,6 +1067,8 @@ export function TableGrid({ baseId, tableId, viewModalTrigger, onViewCreated }: 
   const visibleLeafCols = table.getVisibleLeafColumns();
   const visibleColCount = Math.max(1, visibleLeafCols.length);
 
+  const isSearching = !!activeQuery && isFetching && !isFetchingNextPage;
+
   if (meta.isLoading) {
     return (
       <div className="flex items-center justify-center p-8">
@@ -1157,9 +1162,10 @@ export function TableGrid({ baseId, tableId, viewModalTrigger, onViewCreated }: 
                 }}
               />
 
-              {isFetching && (
+              {isSearching && (
                 <span className="text-xs text-gray-500 dark:text-gray-400">Searching…</span>
               )}
+
 
               {(!!activeQuery || queryInput.length > 0) && (
                 <button
@@ -1275,7 +1281,7 @@ export function TableGrid({ baseId, tableId, viewModalTrigger, onViewCreated }: 
         {/* Table Container */}
         <div
           ref={parentRef}
-          className="scrollbar-light dark:scrollbar-dark flex-1 overflow-auto bg-white dark:bg-gray-900"
+          className="scrollbar-light dark:scrollbar-dark min-h-0 flex-1 overflow-auto bg-white dark:bg-gray-900"
         >
           {!!activeQuery && !isFetching && displayData.length === 0 && (
             <div className="p-8 text-center text-gray-600 dark:text-gray-400">
