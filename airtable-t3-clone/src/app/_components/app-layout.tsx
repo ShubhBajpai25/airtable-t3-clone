@@ -7,16 +7,12 @@ import { useTheme } from "./theme-provider";
 
 // --- Icons ---
 const LogoIcon = () => <span className="text-xl font-black">N</span>;
-const HomeIcon = () => <span className="text-lg">🏠</span>;
-const SearchIcon = () => <span className="text-lg">🔎</span>;
-const ClockIcon = () => <span className="text-lg">🕒</span>;
-const SettingsIcon = () => <span className="text-lg">⚙️</span>;
 const TableIcon = () => <span className="text-lg">📋</span>;
 const GridIcon = () => <span className="text-lg">▦</span>;
 const ChevronDown = () => <span className="text-xs">▾</span>;
+const ChevronRight = () => <span className="text-lg">›</span>;
 const SunIcon = () => <span className="text-lg">☀️</span>;
 const MoonIcon = () => <span className="text-lg">🌙</span>;
-const CollapseIcon = () => <span className="text-lg">«</span>;
 
 type Base = { id: string; name: string };
 type Table = { id: string; name: string };
@@ -46,74 +42,132 @@ function getInitials(name?: string) {
   return parts.map((p) => p[0]?.toUpperCase()).join("") || "U";
 }
 
-function IconButton({
-  title,
-  children,
-  onClick,
-  href,
-  active,
-}: {
-  title: string;
-  children: React.ReactNode;
-  onClick?: () => void;
-  href?: string;
-  active?: boolean;
-}) {
-  const base =
-    "flex h-10 w-10 items-center justify-center rounded-lg transition-colors";
-  const cls = active
-    ? `${base} bg-[var(--surface-2)] text-[var(--fg)]`
-    : `${base} text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--fg)]`;
-
-  if (href) {
-    return (
-      <Link href={href} className={cls} title={title} aria-label={title}>
-        {children}
-      </Link>
-    );
-  }
-  return (
-    <button onClick={onClick} className={cls} title={title} aria-label={title}>
-      {children}
-    </button>
-  );
-}
-
 function LeftRail({ currentUser }: { currentUser?: CurrentUser }) {
-  const pathname = usePathname();
   const { theme, toggleTheme } = useTheme();
+  const [showCreateMenu, setShowCreateMenu] = React.useState(false);
+  const [showProfileMenu, setShowProfileMenu] = React.useState(false);
+  const initials = useMemo(() => getInitials(currentUser?.name), [currentUser?.name]);
 
   return (
     <aside className="flex h-screen w-14 flex-col items-center border-r border-[var(--border-soft)] bg-[var(--surface)] py-3">
+      {/* Logo */}
       <div className="mb-4">
         <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white shadow-sm">
           <LogoIcon />
         </div>
       </div>
 
-      <div className="flex flex-1 flex-col gap-1">
-        <IconButton title="Home" href="/" active={pathname === "/"}>
-          <HomeIcon />
-        </IconButton>
-        <IconButton title="Search" href="/search" active={pathname.startsWith("/search")}>
-          <SearchIcon />
-        </IconButton>
-        <IconButton title="Recent" href="/recent" active={pathname.startsWith("/recent")}>
-          <ClockIcon />
-        </IconButton>
-        <IconButton title="Settings" href="/settings" active={pathname.startsWith("/settings")}>
-          <SettingsIcon />
-        </IconButton>
+      {/* Create New Button */}
+      <div className="relative mb-2">
+        <button
+          onClick={() => setShowCreateMenu(!showCreateMenu)}
+          className="flex h-10 w-10 items-center justify-center rounded-lg text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--fg)] transition-colors"
+          title="Create new"
+        >
+          <span className="text-2xl">+</span>
+        </button>
+
+        {/* Create Menu Dropdown */}
+        {showCreateMenu && (
+          <>
+            <div
+              className="fixed inset-0 z-10"
+              onClick={() => setShowCreateMenu(false)}
+            />
+            <div className="absolute left-full top-0 z-20 ml-2 w-56 rounded-lg border border-[var(--border-soft)] bg-[var(--surface)] shadow-lg">
+              <div className="px-3 py-2 text-xs font-semibold uppercase text-[var(--muted)]">
+                Create New
+              </div>
+              <button className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-[var(--fg)] hover:bg-[var(--surface-2)] transition-colors">
+                <span>🗄️</span>
+                <span>Base</span>
+              </button>
+              <button className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-[var(--fg)] hover:bg-[var(--surface-2)] transition-colors">
+                <TableIcon />
+                <span>Table</span>
+              </button>
+              <button className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-[var(--fg)] hover:bg-[var(--surface-2)] transition-colors">
+                <GridIcon />
+                <span>View</span>
+              </button>
+              
+              <div className="my-1 border-t border-[var(--border-soft)]" />
+              
+              <button
+                onClick={() => {
+                  toggleTheme();
+                  setShowCreateMenu(false);
+                }}
+                className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-[var(--fg)] hover:bg-[var(--surface-2)] transition-colors rounded-b-lg"
+              >
+                {theme === "dark" ? <SunIcon /> : <MoonIcon />}
+                <span>{theme === "dark" ? "Light mode" : "Dark mode"}</span>
+              </button>
+            </div>
+          </>
+        )}
       </div>
 
-      {/* Theme toggle at bottom */}
-      <div className="mt-2 mb-1">
-        <IconButton
-          title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
-          onClick={toggleTheme}
+      <div className="flex-1" />
+
+      {/* Profile at bottom */}
+      <div className="relative mt-2 mb-1">
+        <button
+          onClick={() => setShowProfileMenu(!showProfileMenu)}
+          className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-[var(--border)] bg-[var(--surface-2)] shadow-sm hover:ring-2 hover:ring-blue-500/20 transition-all"
         >
-          {theme === "dark" ? <SunIcon /> : <MoonIcon />}
-        </IconButton>
+          {currentUser?.avatarUrl ? (
+            <img
+              src={currentUser.avatarUrl}
+              alt={`${currentUser.name} avatar`}
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            <span className="text-xs font-semibold text-[var(--muted)]">{initials}</span>
+          )}
+        </button>
+
+        {/* Profile Menu */}
+        {showProfileMenu && (
+          <>
+            <div
+              className="fixed inset-0 z-10"
+              onClick={() => setShowProfileMenu(false)}
+            />
+            <div className="absolute bottom-full left-full z-20 mb-2 ml-2 w-64 rounded-lg border border-[var(--border-soft)] bg-[var(--surface)] shadow-lg">
+              <div className="border-b border-[var(--border-soft)] px-4 py-3">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 overflow-hidden rounded-full border border-[var(--border)] bg-[var(--surface)] flex items-center justify-center flex-shrink-0">
+                    {currentUser?.avatarUrl ? (
+                      <img
+                        src={currentUser.avatarUrl}
+                        alt={`${currentUser.name} avatar`}
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <span className="text-xs font-semibold text-[var(--muted)]">{initials}</span>
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-semibold text-[var(--fg)]">
+                      {currentUser?.name ?? "Guest"}
+                    </div>
+                    <div className="truncate text-xs text-[var(--muted)]">Signed in</div>
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  window.location.href = "/api/auth/signout";
+                }}
+                className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20 transition-colors rounded-b-lg"
+              >
+                <span>🚪</span>
+                <span>Sign out</span>
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </aside>
   );
@@ -126,7 +180,6 @@ function WorkspaceSidebar({
   currentBaseId,
   currentTableId,
   currentViewId,
-  currentUser,
   collapsed,
   onToggleCollapse,
   onCreateView,
@@ -137,30 +190,25 @@ function WorkspaceSidebar({
   currentBaseId?: string;
   currentTableId?: string;
   currentViewId?: string;
-  currentUser?: CurrentUser;
   collapsed: boolean;
   onToggleCollapse: () => void;
   onCreateView?: (type: "GRID" | "GALLERY") => void;
 }) {
   const pathname = usePathname();
+  const [showSearchModal, setShowSearchModal] = React.useState(false);
   const [showViewDropdown, setShowViewDropdown] = React.useState(false);
-  const [showProfileDropdown, setShowProfileDropdown] = React.useState(false);
 
   const currentBaseName = bases.find((b) => b.id === currentBaseId)?.name ?? "Base";
-  const initials = useMemo(() => getInitials(currentUser?.name), [currentUser?.name]);
-
-  const overviewHref = currentBaseId ? `/base/${currentBaseId}` : "/";
-  const isOverviewActive = currentBaseId ? pathname === `/base/${currentBaseId}` : pathname === "/";
 
   if (collapsed) {
     return (
-      <aside className="flex h-screen w-12 flex-col items-center border-r border-[var(--border-soft)] bg-[var(--surface)] py-3">
+      <aside className="flex h-screen w-12 flex-col items-center justify-center border-r border-[var(--border-soft)] bg-[var(--surface)] py-3">
         <button
           onClick={onToggleCollapse}
-          className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--fg)]"
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--fg)] transition-colors"
           title="Expand sidebar"
         >
-          <span className="rotate-180 text-lg">«</span>
+          <ChevronRight />
         </button>
       </aside>
     );
@@ -186,57 +234,65 @@ function WorkspaceSidebar({
           className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--fg)] transition-colors"
           title="Collapse sidebar"
         >
-          <CollapseIcon />
+          <span className="text-lg">«</span>
         </button>
       </div>
 
-      {/* Quick search */}
+      {/* Quick search - opens modal */}
       <div className="px-4 py-3">
-        <div className="flex items-center gap-2 rounded-lg border border-[var(--border-soft)] bg-[var(--surface)] px-3 py-2 transition-colors focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20">
-          <SearchIcon />
-          <input
-            placeholder="Quick search..."
-            className="w-full bg-transparent text-sm text-[var(--fg)] placeholder:text-[var(--muted)] outline-none"
-          />
-          <span className="rounded border border-[var(--border-soft)] px-1.5 py-0.5 text-xs text-[var(--muted)] font-mono">
+        <button
+          onClick={() => setShowSearchModal(true)}
+          className="flex w-full items-center gap-2 rounded-lg border border-[var(--border-soft)] bg-[var(--surface)] px-3 py-2 text-left transition-colors hover:border-blue-500 hover:ring-2 hover:ring-blue-500/20"
+        >
+          <span className="text-lg">🔎</span>
+          <span className="text-sm text-[var(--muted)]">Quick search...</span>
+          <span className="ml-auto rounded border border-[var(--border-soft)] px-1.5 py-0.5 text-xs text-[var(--muted)] font-mono">
             ⌘K
           </span>
-        </div>
-      </div>
-
-      {/* Create New */}
-      <div className="px-4 pb-3">
-        <button
-          className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-50 dark:text-blue-200 dark:hover:bg-blue-900/20 transition-colors"
-          type="button"
-        >
-          <span className="flex items-center gap-2">
-            <span className="inline-flex h-5 w-5 items-center justify-center rounded bg-blue-600 text-white text-xs">
-              +
-            </span>
-            Create New
-          </span>
-          <ChevronDown />
         </button>
       </div>
+
+      {/* Search Modal */}
+      {showSearchModal && (
+        <>
+          <div
+            className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
+            onClick={() => setShowSearchModal(false)}
+          />
+          <div className="fixed inset-0 z-50 flex items-start justify-center pt-20">
+            <div className="w-full max-w-2xl rounded-xl border border-[var(--border-soft)] bg-[var(--surface)] shadow-2xl">
+              <div className="border-b border-[var(--border-soft)] px-4 py-3">
+                <input
+                  autoFocus
+                  placeholder="Search bases, tables, views..."
+                  className="w-full bg-transparent text-lg text-[var(--fg)] placeholder:text-[var(--muted)] outline-none"
+                />
+              </div>
+              <div className="max-h-96 overflow-y-auto p-2">
+                <div className="px-3 py-2 text-xs font-semibold uppercase text-[var(--muted)]">
+                  Most Recently Viewed
+                </div>
+                {views.slice(0, 5).map((view) => (
+                  <Link
+                    key={view.id}
+                    href={`/base/${currentBaseId}/table/${currentTableId}/view/${view.id}`}
+                    onClick={() => setShowSearchModal(false)}
+                    className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-[var(--fg)] hover:bg-[var(--surface-2)] transition-colors"
+                  >
+                    <GridIcon />
+                    <span>{view.name}</span>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* Navigation */}
       <div className="scrollbar min-h-0 flex-1 overflow-y-auto px-3 pb-3">
-        <Link
-          href={overviewHref}
-          className={[
-            "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-            isOverviewActive
-              ? "bg-[var(--surface-2)] text-[var(--fg)]"
-              : "text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--fg)]",
-          ].join(" ")}
-        >
-          <HomeIcon />
-          <span>Overview</span>
-        </Link>
-
         {/* Data Section */}
-        <div className="mt-5 px-3 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+        <div className="mt-3 px-3 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
           Data
         </div>
 
@@ -244,13 +300,10 @@ function WorkspaceSidebar({
           {tables.map((table) => {
             const tableActive = currentTableId === table.id;
             const tableHref = currentBaseId ? `/base/${currentBaseId}/table/${table.id}` : "#";
-            
-            // Only show views for the active table
             const tableViews = tableActive ? views : [];
 
             return (
               <div key={table.id} className="space-y-0.5">
-                {/* Table Name */}
                 <Link
                   href={tableHref}
                   className={[
@@ -264,7 +317,6 @@ function WorkspaceSidebar({
                   <span className="truncate">{table.name}</span>
                 </Link>
 
-                {/* Views under this table */}
                 {tableActive && (
                   <div className="ml-9 space-y-0.5">
                     {tableViews.map((view) => {
@@ -301,7 +353,6 @@ function WorkspaceSidebar({
                         Create View
                       </button>
 
-                      {/* Dropdown */}
                       {showViewDropdown && (
                         <>
                           <div
@@ -358,69 +409,6 @@ function WorkspaceSidebar({
           </button>
         </div>
       </div>
-
-      {/* Footer - Profile only */}
-      <div className="relative border-t border-[var(--border-soft)] p-3">
-        <button
-          onClick={() => setShowProfileDropdown(!showProfileDropdown)}
-          className="flex w-full items-center justify-center rounded-lg p-2 hover:bg-[var(--surface-2)] transition-colors"
-        >
-          <div className="h-9 w-9 overflow-hidden rounded-full border border-[var(--border)] bg-[var(--surface)] flex items-center justify-center">
-            {currentUser?.avatarUrl ? (
-              <img
-                src={currentUser.avatarUrl}
-                alt={`${currentUser.name} avatar`}
-                className="h-full w-full object-cover"
-              />
-            ) : (
-              <span className="text-xs font-semibold text-[var(--muted)]">{initials}</span>
-            )}
-          </div>
-        </button>
-
-        {/* Profile Dropdown */}
-        {showProfileDropdown && (
-          <>
-            <div
-              className="fixed inset-0 z-10"
-              onClick={() => setShowProfileDropdown(false)}
-            />
-            <div className="absolute bottom-full left-3 right-3 z-20 mb-2 rounded-lg border border-[var(--border-soft)] bg-[var(--surface)] shadow-lg">
-              <div className="border-b border-[var(--border-soft)] px-4 py-3">
-                <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 overflow-hidden rounded-full border border-[var(--border)] bg-[var(--surface)] flex items-center justify-center flex-shrink-0">
-                    {currentUser?.avatarUrl ? (
-                      <img
-                        src={currentUser.avatarUrl}
-                        alt={`${currentUser.name} avatar`}
-                        className="h-full w-full object-cover"
-                      />
-                    ) : (
-                      <span className="text-xs font-semibold text-[var(--muted)]">{initials}</span>
-                    )}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-semibold text-[var(--fg)]">
-                      {currentUser?.name ?? "Guest"}
-                    </div>
-                    <div className="truncate text-xs text-[var(--muted)]">Signed in</div>
-                  </div>
-                </div>
-              </div>
-              <button
-                onClick={() => {
-                  // Sign out logic here
-                  window.location.href = "/api/auth/signout";
-                }}
-                className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20 transition-colors rounded-b-lg"
-              >
-                <span>🚪</span>
-                <span>Sign out</span>
-              </button>
-            </div>
-          </>
-        )}
-      </div>
     </aside>
   );
 }
@@ -450,7 +438,6 @@ export function AppLayout({
         currentBaseId={currentBaseId}
         currentTableId={currentTableId}
         currentViewId={currentViewId}
-        currentUser={currentUser}
         collapsed={sidebarCollapsed}
         onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
         onCreateView={onCreateView}
