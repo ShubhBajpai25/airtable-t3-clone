@@ -5,8 +5,11 @@ import { TRPCReactProvider } from "~/trpc/react";
 import "~/styles/globals.css";
 
 export const metadata: Metadata = {
-  title: "AirClone",
-  description: "Airtable clone",
+  title: {
+    template: "%s | NotTable",
+    default: "NotTable",
+  },
+  description: "The ultimate Airtable clone!",
   icons: [{ rel: "icon", url: "/favicon.ico" }],
 };
 
