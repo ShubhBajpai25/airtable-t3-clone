@@ -32,7 +32,7 @@ function SignInForm() {
           </div>
 
           {/* Heading */}
-          <h1 className="mb-8 text-3xl font-semibold text-gray-900">
+          <h1 className="mb-8 text-3xl font-semibold text-white">
             Sign in to NotTable
           </h1>
 
