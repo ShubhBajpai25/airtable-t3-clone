@@ -86,26 +86,27 @@ function LeftRail({ currentUser }: { currentUser?: CurrentUser }) {
                 <TableIcon />
                 <span>Table</span>
               </button>
-              <button className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-[var(--fg)] hover:bg-[var(--surface-2)] transition-colors">
+              <button className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-[var(--fg)] hover:bg-[var(--surface-2)] transition-colors rounded-b-lg">
                 <GridIcon />
                 <span>View</span>
-              </button>
-              
-              <div className="my-1 border-t border-[var(--border-soft)]" />
-              
-              <button
-                onClick={() => {
-                  toggleTheme();
-                  setShowCreateMenu(false);
-                }}
-                className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-[var(--fg)] hover:bg-[var(--surface-2)] transition-colors rounded-b-lg"
-              >
-                {theme === "dark" ? <SunIcon /> : <MoonIcon />}
-                <span>{theme === "dark" ? "Light mode" : "Dark mode"}</span>
               </button>
             </div>
           </>
         )}
+      </div>
+
+      {/* Divider */}
+      <div className="w-8 border-t border-[var(--border-soft)] mb-2" />
+
+      {/* Theme Toggle Button */}
+      <div className="mb-2">
+        <button
+          onClick={toggleTheme}
+          className="flex h-10 w-10 items-center justify-center rounded-lg text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--fg)] transition-colors"
+          title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+        >
+          {theme === "dark" ? <SunIcon /> : <MoonIcon />}
+        </button>
       </div>
 
       <div className="flex-1" />
@@ -200,6 +201,17 @@ function WorkspaceSidebar({
 
   const currentBaseName = bases.find((b) => b.id === currentBaseId)?.name ?? "Base";
 
+  // Handle Esc key to close search modal
+  React.useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && showSearchModal) {
+        setShowSearchModal(false);
+      }
+    };
+    window.addEventListener("keydown", handleEsc);
+    return () => window.removeEventListener("keydown", handleEsc);
+  }, [showSearchModal]);
+
   if (collapsed) {
     return (
       <aside className="flex h-screen w-12 flex-col items-center justify-center border-r border-[var(--border-soft)] bg-[var(--surface)] py-3">
@@ -261,12 +273,19 @@ function WorkspaceSidebar({
           />
           <div className="fixed inset-0 z-50 flex items-start justify-center pt-20">
             <div className="w-full max-w-2xl rounded-xl border border-[var(--border-soft)] bg-[var(--surface)] shadow-2xl">
-              <div className="border-b border-[var(--border-soft)] px-4 py-3">
+              <div className="relative border-b border-[var(--border-soft)] px-4 py-3">
                 <input
                   autoFocus
                   placeholder="Search bases, tables, views..."
-                  className="w-full bg-transparent text-lg text-[var(--fg)] placeholder:text-[var(--muted)] outline-none"
+                  className="w-full bg-transparent text-lg text-[var(--fg)] placeholder:text-[var(--muted)] outline-none pr-8"
                 />
+                <button
+                  onClick={() => setShowSearchModal(false)}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 flex h-6 w-6 items-center justify-center rounded-md text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--fg)] transition-colors"
+                  title="Close (Esc)"
+                >
+                  ✕
+                </button>
               </div>
               <div className="max-h-96 overflow-y-auto p-2">
                 <div className="px-3 py-2 text-xs font-semibold uppercase text-[var(--muted)]">
