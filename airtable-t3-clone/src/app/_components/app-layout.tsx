@@ -4,6 +4,7 @@ import React, { useMemo } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTheme } from "./theme-provider";
+import { signOut } from "next-auth/react";
 
 // --- Icons ---
 const LogoIcon = () => <span className="text-xl font-black">N</span>;
@@ -158,8 +159,8 @@ function LeftRail({ currentUser }: { currentUser?: CurrentUser }) {
                 </div>
               </div>
               <button
-                onClick={() => {
-                  window.location.href = "/api/auth/signout";
+                onClick={async () => {
+                  await signOut({ callbackUrl: "/signin" });
                 }}
                 className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20 transition-colors rounded-b-lg"
               >
