@@ -514,6 +514,12 @@ export function TableGrid({ baseId, tableId, viewModalTrigger, onViewCreated }: 
   const pendingSelRef = React.useRef<CellSel>(null);
   const parentRef = React.useRef<HTMLDivElement>(null);
 
+  const lastAppliedSelRef = React.useRef<CellSel>(null);
+
+  const sameCell = (a: CellSel, b: CellSel) =>
+    a?.rowIdx === b?.rowIdx && a?.colId === b?.colId;
+
+
   // Modal state - managed internally
   const [showViewModal, setShowViewModal] = React.useState(false);
 
@@ -541,6 +547,7 @@ export function TableGrid({ baseId, tableId, viewModalTrigger, onViewCreated }: 
     setActiveQuery(undefined);
     setSelectedCell(null);
     setSelectedColumnId(null);
+    lastAppliedSelRef.current = null;
     pendingSelRef.current = null;
     parentRef.current?.scrollTo({ top: 0 });
     requestAnimationFrame(() => searchRef.current?.focus());
@@ -551,6 +558,7 @@ export function TableGrid({ baseId, tableId, viewModalTrigger, onViewCreated }: 
     setActiveQuery(q.length ? q : undefined);
     setSelectedCell(null);
     setSelectedColumnId(null);
+    lastAppliedSelRef.current = null;
     pendingSelRef.current = null;
     parentRef.current?.scrollTo({ top: 0 });
     requestAnimationFrame(() => searchRef.current?.focus());
@@ -668,6 +676,11 @@ export function TableGrid({ baseId, tableId, viewModalTrigger, onViewCreated }: 
     if (isSearchFocused) return;
     if (!selectedCell) return;
     if (selectedCell.rowIdx < 0 || selectedCell.rowIdx >= displayData.length) return;
+
+    // ✅ Only run the "snap to selection" behavior when the selection changes.
+    // This prevents jumping back to row 0 whenever new pages append.
+    if (sameCell(lastAppliedSelRef.current, selectedCell)) return;
+    lastAppliedSelRef.current = selectedCell;
 
     rowVirtualizer.scrollToIndex(selectedCell.rowIdx, { align: "auto" });
 
