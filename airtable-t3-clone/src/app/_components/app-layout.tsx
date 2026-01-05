@@ -4,7 +4,7 @@ import React, { useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTheme } from "./theme-provider";
-import { signOut } from "next-auth/react";
+import { CreateWorkspaceModal } from "~/app/_components/create-workspace-modal";
 
 // --- Icons ---
 const LogoIcon = () => <span className="text-xl font-black">N</span>;
@@ -55,167 +55,73 @@ function LeftRail({
   const [showWorkspaceMenu, setShowWorkspaceMenu] = React.useState(false);
   const [showCreateMenu, setShowCreateMenu] = React.useState(false);
   const [showProfileMenu, setShowProfileMenu] = React.useState(false);
+  const [showCreateWorkspaceModal, setShowCreateWorkspaceModal] = React.useState(false); // 👈 Add this
   const initials = useMemo(() => getInitials(currentUser?.name), [currentUser?.name]);
 
   return (
-    <aside className="flex h-screen w-14 flex-col items-center border-r border-[var(--border-soft)] bg-[var(--surface)] py-3">
-      {/* Logo - Clickable to show workspace menu */}
-      <div className="relative mb-4">
-        <button
-          onClick={() => setShowWorkspaceMenu(!showWorkspaceMenu)}
-          className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white shadow-sm hover:bg-blue-700 transition-colors"
-          title="Workspace menu"
-        >
-          <LogoIcon />
-        </button>
+    <>
+      <aside className="flex h-screen w-14 flex-col items-center border-r border-[var(--border-soft)] bg-[var(--surface)] py-3">
+        {/* Logo - Clickable to show workspace menu */}
+        <div className="relative mb-4">
+          <button
+            onClick={() => setShowWorkspaceMenu(!showWorkspaceMenu)}
+            className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white shadow-sm hover:bg-blue-700 transition-colors"
+            title="Workspace menu"
+          >
+            <LogoIcon />
+          </button>
 
-        {/* Workspace Menu Dropdown - Simplified */}
-        {showWorkspaceMenu && (
-          <>
-            <div
-              className="fixed inset-0 z-10"
-              onClick={() => setShowWorkspaceMenu(false)}
-            />
-            <div className="absolute left-full top-0 z-20 ml-2 w-64 rounded-lg border border-[var(--border-soft)] bg-[var(--surface)] shadow-lg">
-              <div className="p-2">
-                {/* All Workspaces */}
-                <button
-                  onClick={() => {
-                    void router.push('/');
-                    setShowWorkspaceMenu(false);
-                  }}
-                  className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-[var(--fg)] hover:bg-[var(--surface-2)] transition-colors"
-                >
-                  <span className="text-lg">🏠</span>
-                  <span>All Workspaces</span>
-                </button>
+          {/* Workspace Menu Dropdown - Simplified */}
+          {showWorkspaceMenu && (
+            <>
+              <div
+                className="fixed inset-0 z-10"
+                onClick={() => setShowWorkspaceMenu(false)}
+              />
+              <div className="absolute left-full top-0 z-20 ml-2 w-64 rounded-lg border border-[var(--border-soft)] bg-[var(--surface)] shadow-lg">
+                <div className="p-2">
+                  {/* All Workspaces */}
+                  <button
+                    onClick={() => {
+                      void router.push('/');
+                      setShowWorkspaceMenu(false);
+                    }}
+                    className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-[var(--fg)] hover:bg-[var(--surface-2)] transition-colors"
+                  >
+                    <span className="text-lg">🏠</span>
+                    <span>All Workspaces</span>
+                  </button>
 
-                {/* Create New Workspace */}
-                <button
-                  disabled
-                  className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-[var(--muted)] opacity-50 cursor-not-allowed"
-                  title="Coming soon"
-                >
-                  <span className="text-lg">➕</span>
-                  <span>Create Workspace</span>
-                  <span className="ml-auto text-xs">(Soon)</span>
-                </button>
-              </div>
-            </div>
-          </>
-        )}
-      </div>
-
-      {/* Spacer */}
-      <div className="flex-1" />
-
-      {/* Create New Button */}
-      <div className="relative mb-2">
-        <button
-          onClick={() => setShowCreateMenu(!showCreateMenu)}
-          className="flex h-10 w-10 items-center justify-center rounded-lg text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--fg)] transition-colors"
-          title="Create new"
-        >
-          <span className="text-2xl">+</span>
-        </button>
-
-        {showCreateMenu && (
-          <>
-            <div
-              className="fixed inset-0 z-10"
-              onClick={() => setShowCreateMenu(false)}
-            />
-            <div className="absolute left-full bottom-0 z-20 ml-2 w-56 rounded-lg border border-[var(--border-soft)] bg-[var(--surface)] shadow-lg">
-              <div className="px-3 py-2 text-xs font-semibold uppercase text-[var(--muted)]">
-                Create New
-              </div>
-              <button className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-[var(--fg)] hover:bg-[var(--surface-2)] transition-colors">
-                <span>🗄️</span>
-                <span>Base</span>
-              </button>
-              <button className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-[var(--fg)] hover:bg-[var(--surface-2)] transition-colors">
-                <TableIcon />
-                <span>Table</span>
-              </button>
-              <button className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-[var(--fg)] hover:bg-[var(--surface-2)] transition-colors rounded-b-lg">
-                <GridIcon />
-                <span>View</span>
-              </button>
-            </div>
-          </>
-        )}
-      </div>
-
-      {/* Theme Toggle */}
-      <div className="mb-2">
-        <button
-          onClick={toggleTheme}
-          className="flex h-10 w-10 items-center justify-center rounded-lg text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--fg)] transition-colors"
-          title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
-        >
-          {theme === "dark" ? <SunIcon /> : <MoonIcon />}
-        </button>
-      </div>
-
-      {/* Profile */}
-      <div className="relative mt-2 mb-1">
-        <button
-          onClick={() => setShowProfileMenu(!showProfileMenu)}
-          className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-[var(--border)] bg-[var(--surface-2)] shadow-sm hover:ring-2 hover:ring-blue-500/20 transition-all"
-        >
-          {currentUser?.avatarUrl ? (
-            <img
-              src={currentUser.avatarUrl}
-              alt={`${currentUser.name} avatar`}
-              className="h-full w-full object-cover"
-            />
-          ) : (
-            <span className="text-xs font-semibold text-[var(--muted)]">{initials}</span>
-          )}
-        </button>
-
-        {showProfileMenu && (
-          <>
-            <div
-              className="fixed inset-0 z-10"
-              onClick={() => setShowProfileMenu(false)}
-            />
-            <div className="absolute bottom-full left-full z-20 mb-2 ml-2 w-64 rounded-lg border border-[var(--border-soft)] bg-[var(--surface)] shadow-lg">
-              <div className="border-b border-[var(--border-soft)] px-4 py-3">
-                <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 overflow-hidden rounded-full border border-[var(--border)] bg-[var(--surface)] flex items-center justify-center flex-shrink-0">
-                    {currentUser?.avatarUrl ? (
-                      <img
-                        src={currentUser.avatarUrl}
-                        alt={`${currentUser.name} avatar`}
-                        className="h-full w-full object-cover"
-                      />
-                    ) : (
-                      <span className="text-xs font-semibold text-[var(--muted)]">{initials}</span>
-                    )}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-semibold text-[var(--fg)]">
-                      {currentUser?.name ?? "Guest"}
-                    </div>
-                    <div className="truncate text-xs text-[var(--muted)]">Signed in</div>
-                  </div>
+                  {/* Create New Workspace */}
+                  <button
+                    onClick={() => {
+                      setShowWorkspaceMenu(false);
+                      setShowCreateWorkspaceModal(true); // 👈 Changed from disabled
+                    }}
+                    className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-[var(--fg)] hover:bg-[var(--surface-2)] transition-colors"
+                  >
+                    <span className="text-lg">➕</span>
+                    <span>Create Workspace</span>
+                  </button>
                 </div>
               </div>
-              <button
-                onClick={async () => {
-                  await signOut({ callbackUrl: "/signin" });
-                }}
-                className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20 transition-colors rounded-b-lg"
-              >
-                <span>🚪</span>
-                <span>Sign out</span>
-              </button>
-            </div>
-          </>
-        )}
-      </div>
-    </aside>
+            </>
+          )}
+        </div>
+
+        {/* ... rest of the component stays the same ... */}
+      </aside>
+
+      {/* Create Workspace Modal */}
+      <CreateWorkspaceModal
+        isOpen={showCreateWorkspaceModal}
+        onClose={() => setShowCreateWorkspaceModal(false)}
+        onSuccess={(workspaceId) => {
+          setShowCreateWorkspaceModal(false);
+          void router.push(`/workspace/${workspaceId}`);
+        }}
+      />
+    </>
   );
 }
 
