@@ -44,7 +44,14 @@ function viewOwnedWhere(ctx: AuthedCtx, baseId: string, tableId: string, viewId:
   return {
     id: viewId,
     tableId,
-    table: { baseId, base: { ownerId: ctx.session.user.id } },
+    table: { 
+      baseId,
+      base: { 
+        workspace: { 
+          ownerId: ctx.session.user.id 
+        } 
+      } 
+    },
   } as const;
 }
 
@@ -57,7 +64,11 @@ function toInputJson(value: unknown): ViewConfigJsonInput {
 
 async function requireTableOwned(ctx: AuthedCtx, baseId: string, tableId: string) {
   const table = await ctx.db.table.findFirst({
-    where: { id: tableId, baseId, base: { ownerId: ctx.session.user.id } },
+    where: { 
+      id: tableId, 
+      baseId, 
+      base: { workspace: { ownerId: ctx.session.user.id } } // 👈 Changed
+    },
     select: { id: true },
   });
   if (!table) throw new TRPCError({ code: "NOT_FOUND", message: "Table not found" });
@@ -66,19 +77,26 @@ async function requireTableOwned(ctx: AuthedCtx, baseId: string, tableId: string
 
 export const viewRouter = createTRPCRouter({
   list: protectedProcedure
-    .input(z.object({ baseId: z.string().min(1), tableId: z.string().min(1) }))
-    .query(async ({ ctx, input }) => {
-      await requireTableOwned(ctx as AuthedCtx, input.baseId, input.tableId);
+  .input(z.object({ baseId: z.string().min(1), tableId: z.string().min(1) }))
+  .query(async ({ ctx, input }) => {
+    await requireTableOwned(ctx as AuthedCtx, input.baseId, input.tableId);
 
-      return ctx.db.view.findMany({
-        where: {
-          tableId: input.tableId,
-          table: { baseId: input.baseId, base: { ownerId: ctx.session.user.id } },
+    return ctx.db.view.findMany({
+      where: {
+        tableId: input.tableId,
+        table: {
+          baseId: input.baseId,
+          base: {
+            workspace: {
+              ownerId: ctx.session.user.id,
+            },
+          },
         },
-        orderBy: { createdAt: "asc" },
-        select: { id: true, name: true, type: true, createdAt: true, updatedAt: true },
-      });
-    }),
+      },
+      orderBy: { createdAt: "asc" },
+      select: { id: true, name: true, type: true, createdAt: true, updatedAt: true },
+    });
+  }),
 
   get: protectedProcedure
     .input(

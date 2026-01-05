@@ -21,7 +21,11 @@ function tableOwnedWhere(ctx: AuthedCtx, baseId: string, tableId: string) {
   return {
     id: tableId,
     baseId,
-    base: { ownerId: ctx.session.user.id },
+    base: { 
+      workspace: { 
+        ownerId: ctx.session.user.id 
+      } 
+    },
   } as const;
 }
 
@@ -32,7 +36,10 @@ function andWhere(parts: Prisma.Sql[]) {
 
 async function requireBaseOwned(ctx: AuthedCtx, baseId: string) {
   const base = await ctx.db.base.findFirst({
-    where: { id: baseId, ownerId: ctx.session.user.id },
+    where: { 
+      id: baseId, 
+      workspace: { ownerId: ctx.session.user.id } // 👈 Changed from ownerId to workspace.ownerId
+    },
     select: { id: true },
   });
   if (!base) throw new TRPCError({ code: "NOT_FOUND", message: "Base not found" });
@@ -285,11 +292,25 @@ export const tableRouter = createTRPCRouter({
           ? {
               id: input.viewId,
               tableId: input.tableId,
-              table: { baseId: input.baseId, base: { ownerId: ctx.session.user.id } },
+              table: { 
+                baseId: input.baseId, 
+                base: { 
+                  workspace: { 
+                    ownerId: ctx.session.user.id 
+                  } 
+                } 
+              },
             }
           : {
               tableId: input.tableId,
-              table: { baseId: input.baseId, base: { ownerId: ctx.session.user.id } },
+              table: { 
+                baseId: input.baseId, 
+                base: { 
+                  workspace: { 
+                    ownerId: ctx.session.user.id 
+                  } 
+                } 
+              },
             },
         orderBy: input.viewId ? undefined : { createdAt: "asc" },
         select: { id: true, config: true },
@@ -769,7 +790,11 @@ export const tableRouter = createTRPCRouter({
           tableId: input.tableId,
           table: {
             baseId: input.baseId,
-            base: { ownerId: ctx.session.user.id },
+            base: { 
+              workspace: { 
+                ownerId: ctx.session.user.id 
+              } 
+            }, // ✅ Now using workspace
           },
         },
         select: { id: true },
@@ -884,7 +909,11 @@ export const tableRouter = createTRPCRouter({
           tableId: input.tableId,
           table: {
             baseId: input.baseId,
-            base: { ownerId: ctx.session.user.id },
+            base: { 
+              workspace: { 
+                ownerId: ctx.session.user.id 
+              } 
+            }, // ✅ Now using workspace
           },
         },
         select: { id: true },

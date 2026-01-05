@@ -2,7 +2,7 @@
 
 import React, { useMemo } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useTheme } from "./theme-provider";
 import { signOut } from "next-auth/react";
 
@@ -15,6 +15,7 @@ const ChevronRight = () => <span className="text-lg">›</span>;
 const SunIcon = () => <span className="text-lg">☀️</span>;
 const MoonIcon = () => <span className="text-lg">🌙</span>;
 
+type Workspace = { id: string; name: string };
 type Base = { id: string; name: string };
 type Table = { id: string; name: string };
 type View = { id: string; name: string; type: "GRID" | "GALLERY" };
@@ -27,6 +28,7 @@ type CurrentUser = {
 type AppLayoutProps = {
   children: React.ReactNode;
   header?: React.ReactNode;
+  workspace?: Workspace;
   bases?: Base[];
   tables?: Table[];
   views?: View[];
@@ -43,27 +45,143 @@ function getInitials(name?: string) {
   return parts.map((p) => p[0]?.toUpperCase()).join("") || "U";
 }
 
-function LeftRail({ currentUser }: { currentUser?: CurrentUser }) {
+function LeftRail({ 
+  currentUser,
+  workspace,
+  bases = [],
+}: { 
+  currentUser?: CurrentUser;
+  workspace?: Workspace;
+  bases?: Base[];
+}) {
+  const router = useRouter();
   const { theme, toggleTheme } = useTheme();
+  const [showWorkspaceMenu, setShowWorkspaceMenu] = React.useState(false);
   const [showCreateMenu, setShowCreateMenu] = React.useState(false);
   const [showProfileMenu, setShowProfileMenu] = React.useState(false);
   const initials = useMemo(() => getInitials(currentUser?.name), [currentUser?.name]);
 
   return (
     <aside className="flex h-screen w-14 flex-col items-center border-r border-[var(--border-soft)] bg-[var(--surface)] py-3">
-      {/* Logo */}
-      <div className="mb-4">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white shadow-sm">
+      {/* Logo - Clickable to show workspace menu */}
+      <div className="relative mb-4">
+        <button
+          onClick={() => setShowWorkspaceMenu(!showWorkspaceMenu)}
+          className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white shadow-sm hover:bg-blue-700 transition-colors"
+          title="Workspace menu"
+        >
           <LogoIcon />
-        </div>
+        </button>
+
+        {/* Workspace Menu Dropdown */}
+        {showWorkspaceMenu && (
+          <>
+            <div
+              className="fixed inset-0 z-10"
+              onClick={() => setShowWorkspaceMenu(false)}
+            />
+            <div className="absolute left-full top-0 z-20 ml-2 w-96 rounded-lg border border-[var(--border-soft)] bg-[var(--surface)] shadow-lg max-h-[80vh] flex flex-col">
+              {/* Current Workspace Header */}
+              <div className="border-b border-[var(--border-soft)] px-4 py-3 flex-shrink-0">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-blue-600 text-white flex-shrink-0">
+                    <span className="text-lg font-bold">
+                      {workspace?.name?.[0]?.toUpperCase() ?? "W"}
+                    </span>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-semibold text-[var(--fg)]">
+                      {workspace?.name ?? "Workspace"}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-[var(--muted)] truncate">
+                        ID: {workspace?.id?.slice(0, 8) ?? "N/A"}...
+                      </span>
+                      {workspace?.id && (
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigator.clipboard.writeText(workspace.id);
+                          }}
+                          className="text-xs text-blue-600 hover:text-blue-700 flex-shrink-0"
+                          title="Copy workspace ID"
+                        >
+                          📋
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Home button */}
+                <button
+                  onClick={() => {
+                    router.push('/');
+                    setShowWorkspaceMenu(false);
+                  }}
+                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-[var(--fg)] hover:bg-[var(--surface-2)] transition-colors"
+                >
+                  <span>🏠</span>
+                  <span>All Workspaces</span>
+                </button>
+              </div>
+
+              {/* Bases List */}
+              <div className="flex-1 overflow-y-auto px-2 py-2">
+                <div className="px-3 py-2 text-xs font-semibold uppercase text-[var(--muted)]">
+                  Bases in this Workspace
+                </div>
+                
+                {bases.length === 0 ? (
+                  <div className="px-3 py-8 text-center text-sm text-[var(--muted)]">
+                    No bases yet
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    {bases.map((base) => (
+                      <button
+                        key={base.id}
+                        onClick={() => {
+                          if (workspace?.id) {
+                            router.push(`/workspace/${workspace.id}/base/${base.id}`);
+                          }
+                          setShowWorkspaceMenu(false);
+                        }}
+                        className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-[var(--fg)] hover:bg-[var(--surface-2)] transition-colors"
+                      >
+                        <span className="flex h-8 w-8 items-center justify-center rounded bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-200 flex-shrink-0">
+                          🗄️
+                        </span>
+                        <span className="truncate">{base.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Footer: Create New Workspace (for later) */}
+              <div className="border-t border-[var(--border-soft)] px-2 py-2 flex-shrink-0">
+                <button 
+                  disabled
+                  className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-[var(--muted)] opacity-50 cursor-not-allowed"
+                  title="Coming soon"
+                >
+                  <span className="inline-flex h-6 w-6 items-center justify-center rounded border border-current text-xs">
+                    +
+                  </span>
+                  <span>Create New Workspace</span>
+                  <span className="ml-auto text-xs">(Soon)</span>
+                </button>
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
-      {/* Space for additional buttons you'll add later */}
-      
-      {/* Spacer - pushes everything below to the bottom */}
+      {/* Spacer */}
       <div className="flex-1" />
 
-      {/* Create New Button - now at bottom */}
+      {/* Create New Button */}
       <div className="relative mb-2">
         <button
           onClick={() => setShowCreateMenu(!showCreateMenu)}
@@ -73,7 +191,6 @@ function LeftRail({ currentUser }: { currentUser?: CurrentUser }) {
           <span className="text-2xl">+</span>
         </button>
 
-        {/* Create Menu Dropdown */}
         {showCreateMenu && (
           <>
             <div
@@ -101,7 +218,7 @@ function LeftRail({ currentUser }: { currentUser?: CurrentUser }) {
         )}
       </div>
 
-      {/* Theme Toggle Button - now at bottom */}
+      {/* Theme Toggle */}
       <div className="mb-2">
         <button
           onClick={toggleTheme}
@@ -112,7 +229,7 @@ function LeftRail({ currentUser }: { currentUser?: CurrentUser }) {
         </button>
       </div>
 
-      {/* Profile at very bottom */}
+      {/* Profile */}
       <div className="relative mt-2 mb-1">
         <button
           onClick={() => setShowProfileMenu(!showProfileMenu)}
@@ -129,7 +246,6 @@ function LeftRail({ currentUser }: { currentUser?: CurrentUser }) {
           )}
         </button>
 
-        {/* Profile Menu */}
         {showProfileMenu && (
           <>
             <div
@@ -159,8 +275,8 @@ function LeftRail({ currentUser }: { currentUser?: CurrentUser }) {
                 </div>
               </div>
               <button
-                onClick={() => {
-                  window.location.href = "/api/auth/signout";
+                onClick={async () => {
+                  await signOut({ callbackUrl: "/signin" });
                 }}
                 className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20 transition-colors rounded-b-lg"
               >
@@ -176,6 +292,7 @@ function LeftRail({ currentUser }: { currentUser?: CurrentUser }) {
 }
 
 function WorkspaceSidebar({
+  workspace,
   bases = [],
   tables = [],
   views = [],
@@ -186,6 +303,7 @@ function WorkspaceSidebar({
   onToggleCollapse,
   onCreateView,
 }: {
+  workspace?: Workspace;
   bases?: Base[];
   tables?: Table[];
   views?: View[];
@@ -196,13 +314,12 @@ function WorkspaceSidebar({
   onToggleCollapse: () => void;
   onCreateView?: (type: "GRID" | "GALLERY") => void;
 }) {
-  const pathname = usePathname();
   const [showSearchModal, setShowSearchModal] = React.useState(false);
   const [showViewDropdown, setShowViewDropdown] = React.useState(false);
+  const [showBaseDropdown, setShowBaseDropdown] = React.useState(false);
 
   const currentBaseName = bases.find((b) => b.id === currentBaseId)?.name ?? "Base";
 
-  // Handle Esc key to close search modal
   React.useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => {
       if (e.key === "Escape" && showSearchModal) {
@@ -229,18 +346,49 @@ function WorkspaceSidebar({
 
   return (
     <aside className="flex h-screen min-h-0 w-80 flex-col border-r border-[var(--border-soft)] bg-[var(--surface)]">
-      {/* Header with Base selector and collapse */}
+      {/* Header with Base selector */}
       <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-[var(--border-soft)]">
-        <button
-          className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-1.5 text-sm font-semibold text-[var(--fg)] hover:bg-[var(--surface-2)] transition-colors"
-          title="Select base"
-        >
-          <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-200">
-            ⬢
-          </span>
-          <span className="truncate">{currentBaseName}</span>
-          <ChevronDown />
-        </button>
+        <div className="relative flex-1">
+          <button
+            onClick={() => setShowBaseDropdown(!showBaseDropdown)}
+            className="flex min-w-0 w-full items-center gap-2 rounded-lg px-2 py-1.5 text-sm font-semibold text-[var(--fg)] hover:bg-[var(--surface-2)] transition-colors"
+            title="Select base"
+          >
+            <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-200">
+              ⬢
+            </span>
+            <span className="truncate flex-1 text-left">{currentBaseName}</span>
+            <ChevronDown />
+          </button>
+
+          {/* Base Dropdown */}
+          {showBaseDropdown && (
+            <>
+              <div
+                className="fixed inset-0 z-10"
+                onClick={() => setShowBaseDropdown(false)}
+              />
+              <div className="absolute left-0 top-full z-20 mt-1 w-full rounded-lg border border-[var(--border-soft)] bg-[var(--surface)] shadow-lg max-h-64 overflow-y-auto">
+                {bases.map((base) => (
+                  <Link
+                    key={base.id}
+                    href={`/workspace/${workspace?.id}/base/${base.id}`}
+                    onClick={() => setShowBaseDropdown(false)}
+                    className={[
+                      "flex items-center gap-3 px-4 py-2.5 text-sm transition-colors",
+                      base.id === currentBaseId
+                        ? "bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-200"
+                        : "text-[var(--fg)] hover:bg-[var(--surface-2)]",
+                    ].join(" ")}
+                  >
+                    <span>🗄️</span>
+                    <span className="truncate">{base.name}</span>
+                  </Link>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
 
         <button
           onClick={onToggleCollapse}
@@ -251,7 +399,7 @@ function WorkspaceSidebar({
         </button>
       </div>
 
-      {/* Quick search - opens modal */}
+      {/* Quick search */}
       <div className="px-4 py-3">
         <button
           onClick={() => setShowSearchModal(true)}
@@ -295,7 +443,7 @@ function WorkspaceSidebar({
                 {views.slice(0, 5).map((view) => (
                   <Link
                     key={view.id}
-                    href={`/base/${currentBaseId}/table/${currentTableId}/view/${view.id}`}
+                    href={`/workspace/${workspace?.id}/base/${currentBaseId}/table/${currentTableId}/view/${view.id}`}
                     onClick={() => setShowSearchModal(false)}
                     className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-[var(--fg)] hover:bg-[var(--surface-2)] transition-colors"
                   >
@@ -319,7 +467,9 @@ function WorkspaceSidebar({
         <div className="mt-2 space-y-2">
           {tables.map((table) => {
             const tableActive = currentTableId === table.id;
-            const tableHref = currentBaseId ? `/base/${currentBaseId}/table/${table.id}` : "#";
+            const tableHref = workspace?.id && currentBaseId 
+              ? `/workspace/${workspace.id}/base/${currentBaseId}/table/${table.id}` 
+              : "#";
             const tableViews = tableActive ? views : [];
 
             return (
@@ -340,7 +490,7 @@ function WorkspaceSidebar({
                 {tableActive && (
                   <div className="ml-9 space-y-0.5">
                     {tableViews.map((view) => {
-                      const viewHref = `/base/${currentBaseId}/table/${table.id}/view/${view.id}`;
+                      const viewHref = `/workspace/${workspace?.id}/base/${currentBaseId}/table/${table.id}/view/${view.id}`;
                       const viewActive = currentViewId === view.id;
 
                       return (
@@ -436,6 +586,7 @@ function WorkspaceSidebar({
 export function AppLayout({
   children,
   header,
+  workspace,
   bases,
   tables,
   views,
@@ -449,9 +600,14 @@ export function AppLayout({
 
   return (
     <div className="flex h-screen min-h-0 overflow-hidden bg-[var(--bg)]">
-      <LeftRail currentUser={currentUser} />
+      <LeftRail 
+        currentUser={currentUser} 
+        workspace={workspace}
+        bases={bases}
+      />
 
       <WorkspaceSidebar
+        workspace={workspace}
         bases={bases}
         tables={tables}
         views={views}

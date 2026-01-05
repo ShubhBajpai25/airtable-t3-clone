@@ -7,7 +7,7 @@ import { redirect } from "next/navigation";
 export default async function TablePage({
   params,
 }: {
-  params: Promise<{ baseId: string; tableId: string }>;
+  params: Promise<{ workspaceId: string; baseId: string; tableId: string }>;
 }) {
   const session = await getServerAuthSession();
 
@@ -20,14 +20,16 @@ export default async function TablePage({
     avatarUrl: session.user?.image ?? undefined,
   };
 
-  const { baseId, tableId } = await params;
+  const { workspaceId, baseId, tableId } = await params;
 
-  const bases = await api.base.list();
+  const workspace = await api.workspace.get({ workspaceId });
+  const bases = workspace.bases.map((b) => ({ id: b.id, name: b.name }));
   const tables = await api.table.list({ baseId });
   const views = await api.view.list({ baseId, tableId });
 
   return (
     <TableGridWrapper
+      workspace={{ id: workspace.id, name: workspace.name }}
       bases={bases}
       tables={tables}
       views={views}

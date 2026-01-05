@@ -28,7 +28,7 @@ function ActionCard({
 export default async function BaseOverviewPage({
   params,
 }: {
-  params: Promise<{ baseId: string }>;
+  params: Promise<{ workspaceId: string; baseId: string }>;
 }) {
   const session = await getServerAuthSession();
   if (!session) redirect("/api/auth/signin");
@@ -38,12 +38,11 @@ export default async function BaseOverviewPage({
     avatarUrl: session.user?.image ?? undefined,
   };
 
-  const { baseId } = await params;
+  const { workspaceId, baseId } = await params;
 
-  // IMPORTANT: sanitize to avoid Date serialization into client components
-  const basesRaw = await api.base.list();
-  const bases = basesRaw.map((b) => ({ id: b.id, name: b.name }));
-
+  const workspace = await api.workspace.get({ workspaceId });
+  const bases = workspace.bases.map((b) => ({ id: b.id, name: b.name }));
+  
   const tablesRaw = await api.table.list({ baseId });
   const tables = tablesRaw.map((t) => ({ id: t.id, name: t.name }));
 
@@ -69,12 +68,12 @@ export default async function BaseOverviewPage({
       {/* Tabs */}
       <div className="mt-4 flex flex-wrap gap-2">
         {[
-          { label: "Overview", href: `/base/${baseId}` },
-          { label: "Members", href: `/base/${baseId}/members` },
-          { label: "Permissions", href: `/base/${baseId}/permissions` },
-          { label: "Data Sources", href: `/base/${baseId}/data-sources`, badge: 1 },
-          { label: "Syncs", href: `/base/${baseId}/syncs` },
-          { label: "Settings", href: `/base/${baseId}/settings` },
+          { label: "Overview", href: `/workspace/${workspaceId}/base/${baseId}` },
+          { label: "Members", href: `/workspace/${workspaceId}/base/${baseId}/members` },
+          { label: "Permissions", href: `/workspace/${workspaceId}/base/${baseId}/permissions` },
+          { label: "Data Sources", href: `/workspace/${workspaceId}/base/${baseId}/data-sources`, badge: 1 },
+          { label: "Syncs", href: `/workspace/${workspaceId}/base/${baseId}/syncs` },
+          { label: "Settings", href: `/workspace/${workspaceId}/base/${baseId}/settings` },
         ].map((t) => (
           <Link
             key={t.label}
@@ -100,6 +99,7 @@ export default async function BaseOverviewPage({
 
   return (
     <AppLayout
+      workspace={{ id: workspace.id, name: workspace.name }}
       bases={bases}
       tables={tables}
       currentBaseId={baseId}

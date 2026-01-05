@@ -18,6 +18,7 @@ type View = {
 };
 
 type TableGridWrapperProps = {
+  workspace: { id: string; name: string };
   bases: Base[];
   tables: Table[];
   views: View[];
@@ -30,6 +31,7 @@ type TableGridWrapperProps = {
 };
 
 export function TableGridWrapper({
+  workspace,
   bases,
   tables,
   views: initialViews,
@@ -73,6 +75,7 @@ export function TableGridWrapper({
 
   return (
     <AppLayout
+      workspace={workspace}
       bases={bases}
       tables={tables}
       views={viewsQuery.data ?? initialViews}

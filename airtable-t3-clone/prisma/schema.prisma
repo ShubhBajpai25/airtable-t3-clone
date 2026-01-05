@@ -8,10 +8,6 @@ generator client {
 
 datasource db {
   provider  = "postgresql"
-  // NOTE: When using mysql or sqlserver, uncomment the @db.Text annotations in model Account below
-  // Further reading:
-  // https://next-auth.js.org/adapters/prisma#create-the-prisma-schema
-  // https://www.prisma.io/docs/reference/api-reference/prisma-schema-reference#string
   url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
 }
@@ -25,7 +21,7 @@ enum ViewType {
   GRID
 }
 
-model Base {
+model Workspace {
   id        String   @id @default(cuid())
   name      String
   createdAt DateTime @default(now())
@@ -34,9 +30,23 @@ model Base {
   owner   User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   ownerId String
 
-  tables Table[]
+  bases Base[]
 
   @@index([ownerId])
+}
+
+model Base {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspaceId String
+
+  tables Table[]
+
+  @@index([workspaceId])
 }
 
 model View {
@@ -66,8 +76,7 @@ model Table {
 
   columns Column[]
   rows    Row[]
-
-  views View[]
+  views   View[]
 
   @@unique([baseId, name])
   @@index([baseId])
@@ -131,12 +140,12 @@ model Account {
   type                     String
   provider                 String
   providerAccountId        String
-  refresh_token            String? // @db.Text
-  access_token             String? // @db.Text
+  refresh_token            String?
+  access_token             String?
   expires_at               Int?
   token_type               String?
   scope                    String?
-  id_token                 String? // @db.Text
+  id_token                 String?
   session_state            String?
   user                     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   refresh_token_expires_in Int?
@@ -153,14 +162,15 @@ model Session {
 }
 
 model User {
-  id            String    @id @default(cuid())
+  id            String      @id @default(cuid())
   name          String?
-  email         String?   @unique
+  email         String?     @unique
   emailVerified DateTime?
   image         String?
   accounts      Account[]
   sessions      Session[]
-  bases         Base[]
+
+  workspaces    Workspace[]
 }
 
 model VerificationToken {
