@@ -2,7 +2,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import type { PrismaClient } from "~/server/db";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
-import type { PrismaClientKnownRequestError } from "@prisma/client/runtime/library";
+import { PrismaClientKnownRequestError } from "@prisma/client/runtime/library";
 
 // ---- ViewConfig schema (match what table.rowsInfinite expects) ----
 const textFilterSchema = z.object({
