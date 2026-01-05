@@ -73,6 +73,10 @@ export function TableGridWrapper({
     }
   }, [currentViewId, viewsQuery.data]);
 
+  // Get names for breadcrumb
+  const currentBase = bases.find((b) => b.id === currentBaseId);
+  const currentTable = tables.find((t) => t.id === currentTableId);
+
   return (
     <AppLayout
       workspace={workspace}
@@ -88,14 +92,17 @@ export function TableGridWrapper({
       }}
     >
       <div className="flex h-full min-h-0 flex-col bg-gray-50 dark:bg-gray-950">
-        {/* Header with ViewControls */}
+        {/* Header with Breadcrumb and ViewControls */}
         <div className="border-b bg-white px-6 py-4 dark:border-gray-800 dark:bg-gray-900">
           <div className="flex items-center justify-between gap-4">
+            {/* Breadcrumb Navigation */}
             <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
-              <span>Workspace</span>
+              <span>{workspace.name}</span>
+              <span>›</span>
+              <span>{currentBase?.name ?? "Base"}</span>
               <span>›</span>
               <span className="font-semibold text-gray-900 dark:text-white">
-                Table
+                {currentTable?.name ?? "Table"}
               </span>
             </div>
 

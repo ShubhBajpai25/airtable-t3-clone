@@ -57,14 +57,6 @@ type GridMeta = {
   onRenameColumn: (colId: string, next: string) => void;
 };
 
-// Toolbar Icons
-const FieldsIcon = () => <span className="text-base">☰</span>;
-const FilterIcon = () => <span className="text-base">🔽</span>;
-const GroupIcon = () => <span className="text-base">▤</span>;
-const SortIcon = () => <span className="text-base">↕</span>;
-const ColourIcon = () => <span className="text-base">🎨</span>;
-const MoreIcon = () => <span className="text-base">⋯</span>;
-
 function ToolbarButton({
   children,
   onClick,
@@ -1143,28 +1135,6 @@ export function TableGrid({ baseId, tableId, viewId, viewModalTrigger, onViewCre
       <div className="flex h-full flex-col bg-white dark:bg-gray-900">
         {/* Airtable-style Toolbar */}
         <div className="flex items-center justify-between border-b border-gray-200 bg-white px-4 py-2 dark:border-gray-800 dark:bg-gray-900">
-          <div className="flex items-center gap-2">
-            <ToolbarButton>
-              <FieldsIcon />
-              <span>Fields</span>
-            </ToolbarButton>
-            <ToolbarButton>
-              <FilterIcon />
-              <span>Filter</span>
-            </ToolbarButton>
-            <ToolbarButton>
-              <GroupIcon />
-              <span>Group</span>
-            </ToolbarButton>
-            <ToolbarButton>
-              <SortIcon />
-              <span>Sort</span>
-            </ToolbarButton>
-            <ToolbarButton>
-              <ColourIcon />
-              <span>Colour</span>
-            </ToolbarButton>
-          </div>
 
           <div className="flex items-center gap-2">
             {/* Search */}
