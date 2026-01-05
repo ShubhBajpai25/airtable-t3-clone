@@ -21,7 +21,6 @@ export default function HomePage() {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[var(--bg)]">
         <div className="text-center">
-          <div className="mb-4 text-4xl">⏳</div>
           <p className="text-[var(--muted)]">Loading workspaces...</p>
         </div>
       </div>

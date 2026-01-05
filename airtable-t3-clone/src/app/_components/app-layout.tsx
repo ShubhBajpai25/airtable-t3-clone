@@ -127,7 +127,7 @@ function LeftRail({
                           className="flex-shrink-0 rounded-md px-2 py-1 text-xs text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/20 transition-colors"
                           title="Copy workspace ID"
                         >
-                          {copied ? "✓ Copied" : "📋 Copy"}
+                          {copied ? "✓ Copied" : "Copy"}
                         </button>
                       </div>
                     </div>
