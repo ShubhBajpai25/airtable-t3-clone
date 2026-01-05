@@ -3,6 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { db } from "~/server/db";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { PrismaClientKnownRequestError } from "@prisma/client/runtime/library";
+import { PrismaClient } from "@prisma/client";
 
 // ---- ViewConfig schema (match what table.rowsInfinite expects) ----
 const textFilterSchema = z.object({
@@ -36,7 +37,7 @@ export const viewConfigSchema = z
   .passthrough();
 
 type AuthedCtx = {
-  db: typeof db;
+  db: PrismaClient;
   session: { user: { id: string } };
 };
 

@@ -1,4 +1,3 @@
-import { AppLayout } from "~/app/_components/app-layout";
 import { TableGridWrapper } from "~/app/_components/table-grid-wrapper";
 import { api } from "~/trpc/server";
 import { getServerAuthSession } from "~/server/auth";

@@ -2,7 +2,7 @@
 
 import React, { useMemo } from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useTheme } from "./theme-provider";
 import { signOut } from "next-auth/react";
 
@@ -116,7 +116,7 @@ function LeftRail({
                 {/* Home button */}
                 <button
                   onClick={() => {
-                    router.push('/');
+                    void router.push('/');
                     setShowWorkspaceMenu(false);
                   }}
                   className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-[var(--fg)] hover:bg-[var(--surface-2)] transition-colors"
@@ -143,7 +143,7 @@ function LeftRail({
                         key={base.id}
                         onClick={() => {
                           if (workspace?.id) {
-                            router.push(`/workspace/${workspace.id}/base/${base.id}`);
+                            void router.push(`/workspace/${workspace.id}/base/${base.id}`);
                           }
                           setShowWorkspaceMenu(false);
                         }}

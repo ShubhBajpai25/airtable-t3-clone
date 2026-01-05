@@ -32,7 +32,6 @@ type Props = {
 
 const COL_WIDTH = 200;
 const ROW_HEIGHT = 36;
-const EMPTY_STR_ARR: string[] = [];
 
 type RowDatum = {
   id: string;
