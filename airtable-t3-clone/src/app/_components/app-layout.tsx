@@ -47,12 +47,8 @@ function getInitials(name?: string) {
 
 function LeftRail({ 
   currentUser,
-  workspace,
-  bases = [],
 }: { 
   currentUser?: CurrentUser;
-  workspace?: Workspace;
-  bases?: Base[];
 }) {
   const router = useRouter();
   const { theme, toggleTheme } = useTheme();
@@ -73,103 +69,35 @@ function LeftRail({
           <LogoIcon />
         </button>
 
-        {/* Workspace Menu Dropdown */}
+        {/* Workspace Menu Dropdown - Simplified */}
         {showWorkspaceMenu && (
           <>
             <div
               className="fixed inset-0 z-10"
               onClick={() => setShowWorkspaceMenu(false)}
             />
-            <div className="absolute left-full top-0 z-20 ml-2 w-96 rounded-lg border border-[var(--border-soft)] bg-[var(--surface)] shadow-lg max-h-[80vh] flex flex-col">
-              {/* Current Workspace Header */}
-              <div className="border-b border-[var(--border-soft)] px-4 py-3 flex-shrink-0">
-                <div className="flex items-center gap-3 mb-2">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-blue-600 text-white flex-shrink-0">
-                    <span className="text-lg font-bold">
-                      {workspace?.name?.[0]?.toUpperCase() ?? "W"}
-                    </span>
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-semibold text-[var(--fg)]">
-                      {workspace?.name ?? "Workspace"}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-[var(--muted)] truncate">
-                        ID: {workspace?.id?.slice(0, 8) ?? "N/A"}...
-                      </span>
-                      {workspace?.id && (
-                        <button 
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            void navigator.clipboard.writeText(workspace.id);
-                          }}
-                          className="text-xs text-blue-600 hover:text-blue-700 flex-shrink-0"
-                          title="Copy workspace ID"
-                        >
-                          📋
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-                
-                {/* Home button */}
+            <div className="absolute left-full top-0 z-20 ml-2 w-64 rounded-lg border border-[var(--border-soft)] bg-[var(--surface)] shadow-lg">
+              <div className="p-2">
+                {/* All Workspaces */}
                 <button
                   onClick={() => {
                     void router.push('/');
                     setShowWorkspaceMenu(false);
                   }}
-                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-[var(--fg)] hover:bg-[var(--surface-2)] transition-colors"
+                  className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-[var(--fg)] hover:bg-[var(--surface-2)] transition-colors"
                 >
-                  <span>🏠</span>
+                  <span className="text-lg">🏠</span>
                   <span>All Workspaces</span>
                 </button>
-              </div>
 
-              {/* Bases List */}
-              <div className="flex-1 overflow-y-auto px-2 py-2">
-                <div className="px-3 py-2 text-xs font-semibold uppercase text-[var(--muted)]">
-                  Bases in this Workspace
-                </div>
-                
-                {bases.length === 0 ? (
-                  <div className="px-3 py-8 text-center text-sm text-[var(--muted)]">
-                    No bases yet
-                  </div>
-                ) : (
-                  <div className="space-y-1">
-                    {bases.map((base) => (
-                      <button
-                        key={base.id}
-                        onClick={() => {
-                          if (workspace?.id) {
-                            void router.push(`/workspace/${workspace.id}/base/${base.id}`);
-                          }
-                          setShowWorkspaceMenu(false);
-                        }}
-                        className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-[var(--fg)] hover:bg-[var(--surface-2)] transition-colors"
-                      >
-                        <span className="flex h-8 w-8 items-center justify-center rounded bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-200 flex-shrink-0">
-                          🗄️
-                        </span>
-                        <span className="truncate">{base.name}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Footer: Create New Workspace (for later) */}
-              <div className="border-t border-[var(--border-soft)] px-2 py-2 flex-shrink-0">
-                <button 
+                {/* Create New Workspace */}
+                <button
                   disabled
-                  className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-[var(--muted)] opacity-50 cursor-not-allowed"
+                  className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-[var(--muted)] opacity-50 cursor-not-allowed"
                   title="Coming soon"
                 >
-                  <span className="inline-flex h-6 w-6 items-center justify-center rounded border border-current text-xs">
-                    +
-                  </span>
-                  <span>Create New Workspace</span>
+                  <span className="text-lg">➕</span>
+                  <span>Create Workspace</span>
                   <span className="ml-auto text-xs">(Soon)</span>
                 </button>
               </div>
@@ -563,21 +491,7 @@ function WorkspaceSidebar({
           })}
         </div>
 
-        {/* Automations Section */}
-        <div className="mt-6 px-3 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-          Automations
-        </div>
-        <div className="mt-2">
-          <button
-            className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-blue-700 hover:bg-blue-50 dark:text-blue-200 dark:hover:bg-blue-900/20 transition-colors"
-            type="button"
-          >
-            <span className="inline-flex h-5 w-5 items-center justify-center rounded bg-blue-600 text-white text-xs">
-              +
-            </span>
-            Create Automation
-          </button>
-        </div>
+        {/* Removed Automations Section */}
       </div>
     </aside>
   );
@@ -600,11 +514,7 @@ export function AppLayout({
 
   return (
     <div className="flex h-screen min-h-0 overflow-hidden bg-[var(--bg)]">
-      <LeftRail 
-        currentUser={currentUser} 
-        workspace={workspace}
-        bases={bases}
-      />
+      <LeftRail currentUser={currentUser} />  {/* 👈 Simplified */}
 
       <WorkspaceSidebar
         workspace={workspace}
