@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTheme } from "./theme-provider";
 import { CreateWorkspaceModal } from "~/app/_components/create-workspace-modal";
+import { signOut } from "next-auth/react";
 
 // --- Icons ---
 const LogoIcon = () => <span className="text-xl font-black">N</span>;
