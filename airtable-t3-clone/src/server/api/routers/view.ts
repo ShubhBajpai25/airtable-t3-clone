@@ -1,9 +1,8 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { db } from "~/server/db";
+import type { PrismaClient } from "~/server/db";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
-import { PrismaClientKnownRequestError } from "@prisma/client/runtime/library";
-import { PrismaClient } from "@prisma/client";
+import type { PrismaClientKnownRequestError } from "@prisma/client/runtime/library";
 
 // ---- ViewConfig schema (match what table.rowsInfinite expects) ----
 const textFilterSchema = z.object({
@@ -56,12 +55,9 @@ function viewOwnedWhere(ctx: AuthedCtx, baseId: string, tableId: string, viewId:
   } as const;
 }
 
-type ViewConfigJsonInput = Parameters<typeof db.view.update>[0]["data"]["config"];
-
-function toInputJson(value: unknown): ViewConfigJsonInput {
-  return JSON.parse(JSON.stringify(value)) as ViewConfigJsonInput;
+function toInputJson(value: unknown): Record<string, unknown> {
+  return JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
 }
-
 
 async function requireTableOwned(ctx: AuthedCtx, baseId: string, tableId: string) {
   const table = await ctx.db.table.findFirst({
@@ -218,7 +214,7 @@ export const viewRouter = createTRPCRouter({
 
       const updated = await ctx.db.view.update({
         where: { id: view.id },
-        data: { config: toInputJson(merged) },
+        data: { config: merged as never },
         select: { id: true, config: true },
       });
 
