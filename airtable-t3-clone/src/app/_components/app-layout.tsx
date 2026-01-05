@@ -101,7 +101,7 @@ function LeftRail({
                         <button 
                           onClick={(e) => {
                             e.stopPropagation();
-                            navigator.clipboard.writeText(workspace.id);
+                            void navigator.clipboard.writeText(workspace.id);
                           }}
                           className="text-xs text-blue-600 hover:text-blue-700 flex-shrink-0"
                           title="Copy workspace ID"
