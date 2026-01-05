@@ -1174,10 +1174,6 @@ export function TableGrid({ baseId, tableId, viewId, viewModalTrigger, onViewCre
                 </button>
               )}
             </div>
-
-            <ToolbarButton>
-              <MoreIcon />
-            </ToolbarButton>
           </div>
         </div>
 
